@@ -37,8 +37,7 @@ class DeliveryStateStore:
                     if not isinstance(records, dict):
                         continue
                     normalized[str(group)] = {
-                        str(key): str(timestamp)
-                        for key, timestamp in records.items()
+                        str(key): str(timestamp) for key, timestamp in records.items()
                     }
                 self._state["deliveries"] = normalized
         except (json.JSONDecodeError, OSError) as exc:  # pragma: no cover - IO 容错
@@ -51,7 +50,9 @@ class DeliveryStateStore:
         except OSError as exc:  # pragma: no cover - IO 容错
             logger.warning("写入节日发送记录失败: %s", exc)
 
-    async def get_last_sent(self, group_id: str, holiday_key: str) -> Optional[datetime]:
+    async def get_last_sent(
+        self, group_id: str, holiday_key: str
+    ) -> Optional[datetime]:
         async with self._lock:
             records = self._state["deliveries"].get(str(group_id), {})
             value = records.get(holiday_key)
@@ -62,7 +63,9 @@ class DeliveryStateStore:
         except ValueError:
             return None
 
-    async def should_send(self, group_id: str, holiday_key: str, now: datetime, cooldown_hours: int) -> bool:
+    async def should_send(
+        self, group_id: str, holiday_key: str, now: datetime, cooldown_hours: int
+    ) -> bool:
         last_sent = await self.get_last_sent(group_id, holiday_key)
         if not last_sent:
             return True
@@ -70,7 +73,9 @@ class DeliveryStateStore:
             return last_sent.date() != now.date()
         return now - last_sent >= timedelta(hours=cooldown_hours)
 
-    async def mark_sent(self, group_id: str, holiday_key: str, timestamp: datetime) -> None:
+    async def mark_sent(
+        self, group_id: str, holiday_key: str, timestamp: datetime
+    ) -> None:
         async with self._lock:
             deliveries = self._state.setdefault("deliveries", {})
             group_records = deliveries.setdefault(str(group_id), {})
@@ -78,7 +83,12 @@ class DeliveryStateStore:
             await self._flush()
 
     def list_groups(self) -> List[str]:
-        return list(self._state.get("deliveries", {}).keys())
+        # Birthday-only groups must not become regular holiday subscribers on restart.
+        return [
+            group
+            for group, records in self._state.get("deliveries", {}).items()
+            if any(not key.startswith("birthday-") for key in records)
+        ]
 
     async def prune_before(self, cutoff: datetime) -> None:
         async with self._lock:

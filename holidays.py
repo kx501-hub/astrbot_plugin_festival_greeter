@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
+from hashlib import sha256
 import re
 from typing import Iterable, List, Mapping, Sequence
 
 from astrbot.api import logger
+from lunardate import LunarDate
 
 
 @dataclass(frozen=True)
@@ -21,9 +23,17 @@ class HolidayDefinition:
     aliases: Sequence[str] = field(default_factory=tuple)
     description: str = ""
     dynamic_dates: Mapping[int, tuple[int, int]] = field(default_factory=dict)
+    greeting_type: str = "节日"
+    recipient: str = "全群"
+    target_session: str = ""
+    calendar: str = "solar"
+    leap_month: bool = False
 
     @property
     def slug(self) -> str:
+        if self.greeting_type == "生日":
+            identity = f"{self.target_session}|{self.recipient}|{self.calendar}|{self.month}|{self.day}|{self.leap_month}"
+            return "birthday-" + sha256(identity.encode("utf-8")).hexdigest()[:24]
         base = re.sub(r"[^a-z0-9]+", "-", self.name.lower())
         return base.strip("-") or "holiday"
 
@@ -43,13 +53,32 @@ class HolidayDefinition:
             return None
 
     def matches_date(self, target: date) -> bool:
-        start = self.start_date_for_year(target.year)
-        if not start:
-            return False
-        delta = (target - start).days
-        return 0 <= delta < self.duration_days
+        return self.occurrence_on(target) is not None
 
     def occurrence_on(self, target: date) -> "HolidayOccurrence | None":
+        """Match a solar date against the configured calendar and leap month.
+
+        Args:
+            target: Solar date to check.
+
+        Returns:
+            Matching occurrence, or None if this date does not match.
+        """
+        if self.calendar == "lunar":
+            try:
+                lunar = LunarDate.from_solar_date(target.year, target.month, target.day)
+            except ValueError:
+                logger.warning(
+                    "Solar date is outside the supported lunar range: %s", target
+                )
+                return None
+            if (lunar.month, lunar.day, lunar.is_leap_month) == (
+                self.month,
+                self.day,
+                self.leap_month,
+            ):
+                return HolidayOccurrence(self, target, target)
+            return None
         start = self.start_date_for_year(target.year)
         if not start:
             return None
@@ -90,79 +119,120 @@ class HolidayOccurrence:
             "slug": self.definition.slug,
         }
 
+
 DEFAULT_HOLIDAYS: List[HolidayDefinition] = [
     HolidayDefinition("元旦", 1, 1, aliases=("新年",)),
-    HolidayDefinition("春节", 2, 1, length_days=7, aliases=("新春", "Spring Festival"), dynamic_dates={
-        2024: (2, 10),
-        2025: (1, 29),
-        2026: (2, 17),
-        2027: (2, 6),
-        2028: (1, 26),
-        2029: (2, 13),
-        2030: (2, 3),
-    }),
-    HolidayDefinition("元宵节", 2, 15, aliases=("上元节",), dynamic_dates={
-        2024: (2, 24),
-        2025: (2, 12),
-        2026: (3, 3),
-        2027: (2, 20),
-        2028: (2, 9),
-        2029: (2, 28),
-        2030: (2, 18),
-    }),
+    HolidayDefinition(
+        "春节",
+        2,
+        1,
+        length_days=7,
+        aliases=("新春", "Spring Festival"),
+        dynamic_dates={
+            2024: (2, 10),
+            2025: (1, 29),
+            2026: (2, 17),
+            2027: (2, 6),
+            2028: (1, 26),
+            2029: (2, 13),
+            2030: (2, 3),
+        },
+    ),
+    HolidayDefinition(
+        "元宵节",
+        2,
+        15,
+        aliases=("上元节",),
+        dynamic_dates={
+            2024: (2, 24),
+            2025: (2, 12),
+            2026: (3, 3),
+            2027: (2, 20),
+            2028: (2, 9),
+            2029: (2, 28),
+            2030: (2, 18),
+        },
+    ),
     HolidayDefinition("妇女节", 3, 8, aliases=("女神节",)),
     HolidayDefinition("植树节", 3, 12),
     HolidayDefinition("清明节", 4, 5, aliases=("踏青节",)),
     HolidayDefinition("劳动节", 5, 1, length_days=3, aliases=("五一",)),
     HolidayDefinition("青年节", 5, 4),
-    HolidayDefinition("端午节", 6, 3, aliases=("龙舟节",), dynamic_dates={
-        2024: (6, 10),
-        2025: (5, 31),
-        2026: (6, 19),
-        2027: (6, 9),
-        2028: (5, 28),
-        2029: (6, 16),
-        2030: (6, 5),
-    }),
+    HolidayDefinition(
+        "端午节",
+        6,
+        3,
+        aliases=("龙舟节",),
+        dynamic_dates={
+            2024: (6, 10),
+            2025: (5, 31),
+            2026: (6, 19),
+            2027: (6, 9),
+            2028: (5, 28),
+            2029: (6, 16),
+            2030: (6, 5),
+        },
+    ),
     HolidayDefinition("儿童节", 6, 1, aliases=("六一",)),
     HolidayDefinition("建党节", 7, 1),
-    HolidayDefinition("七夕节", 8, 7, aliases=("乞巧节",), dynamic_dates={
-        2024: (8, 10),
-        2025: (8, 29),
-        2026: (8, 19),
-        2027: (8, 8),
-        2028: (8, 26),
-        2029: (8, 15),
-        2030: (8, 4),
-    }),
+    HolidayDefinition(
+        "七夕节",
+        8,
+        7,
+        aliases=("乞巧节",),
+        dynamic_dates={
+            2024: (8, 10),
+            2025: (8, 29),
+            2026: (8, 19),
+            2027: (8, 8),
+            2028: (8, 26),
+            2029: (8, 15),
+            2030: (8, 4),
+        },
+    ),
     HolidayDefinition("建军节", 8, 1),
     HolidayDefinition("教师节", 9, 10),
-    HolidayDefinition("中秋节", 9, 15, length_days=3, aliases=("月圆节", "Moon Festival"), dynamic_dates={
-        2024: (9, 17),
-        2025: (10, 6),
-        2026: (9, 25),
-        2027: (9, 15),
-        2028: (10, 3),
-        2029: (9, 22),
-        2030: (9, 12),
-    }),
+    HolidayDefinition(
+        "中秋节",
+        9,
+        15,
+        length_days=3,
+        aliases=("月圆节", "Moon Festival"),
+        dynamic_dates={
+            2024: (9, 17),
+            2025: (10, 6),
+            2026: (9, 25),
+            2027: (9, 15),
+            2028: (10, 3),
+            2029: (9, 22),
+            2030: (9, 12),
+        },
+    ),
     HolidayDefinition("国庆节", 10, 1, length_days=7, aliases=("十一", "National Day")),
-    HolidayDefinition("重阳节", 10, 9, aliases=("敬老节",), dynamic_dates={
-        2024: (10, 11),
-        2025: (10, 29),
-        2026: (10, 18),
-        2027: (10, 7),
-        2028: (10, 26),
-        2029: (10, 15),
-        2030: (10, 4),
-    }),
+    HolidayDefinition(
+        "重阳节",
+        10,
+        9,
+        aliases=("敬老节",),
+        dynamic_dates={
+            2024: (10, 11),
+            2025: (10, 29),
+            2026: (10, 18),
+            2027: (10, 7),
+            2028: (10, 26),
+            2029: (10, 15),
+            2030: (10, 4),
+        },
+    ),
 ]
 
 
 class HolidayCalendar:
     """节日查询服务，可合并自定义节日。"""
 
-    def __init__(self, custom_definitions: Iterable[HolidayDefinition] | None = None) -> None:
+    def __init__(
+        self, custom_definitions: Iterable[HolidayDefinition] | None = None
+    ) -> None:
         self._definitions: List[HolidayDefinition] = list(DEFAULT_HOLIDAYS)
         if custom_definitions:
             for item in custom_definitions:
@@ -175,8 +245,62 @@ class HolidayCalendar:
                 self._definitions.append(item)
 
     @staticmethod
-    def from_config(items: Sequence | None) -> "HolidayCalendar":
+    def from_config(
+        items: Sequence | None, birthdays: Sequence | None = None
+    ) -> "HolidayCalendar":
+        """Load custom holidays and validated group birthday entries.
+
+        Args:
+            items: Existing custom holiday configuration.
+            birthdays: Birthday objects with recipient, session and calendar fields.
+
+        Returns:
+            Calendar containing built-in holidays and valid configured entries.
+        """
         definitions: List[HolidayDefinition] = []
+        for raw in birthdays or []:
+            try:
+                if not isinstance(raw, dict):
+                    raise TypeError("Birthday entry must be an object")
+                recipient = str(raw.get("recipient", "")).strip()
+                session = str(raw.get("target_session", "")).strip()
+                parts = session.split(":", 2)
+                if (
+                    not recipient
+                    or len(parts) != 3
+                    or parts[1] != "GroupMessage"
+                    or not parts[0]
+                    or not parts[2]
+                ):
+                    raise ValueError(
+                        "Recipient and a full group session ID are required"
+                    )
+                calendar = raw.get("calendar", "solar")
+                month, day = int(raw.get("month", 0)), int(raw.get("day", 0))
+                if calendar == "solar":
+                    date(2000, month, day)
+                elif calendar == "lunar":
+                    if not 1 <= month <= 12 or not 1 <= day <= 30:
+                        raise ValueError("Invalid lunar month or day")
+                else:
+                    raise ValueError("Calendar must be solar or lunar")
+                definitions.append(
+                    HolidayDefinition(
+                        name=f"{recipient}的生日",
+                        month=month,
+                        day=day,
+                        description=str(raw.get("extra_info", "")).strip(),
+                        greeting_type="生日",
+                        recipient=recipient,
+                        target_session=session,
+                        calendar=calendar,
+                        leap_month=bool(raw.get("leap_month", False))
+                        if calendar == "lunar"
+                        else False,
+                    )
+                )
+            except (TypeError, ValueError) as exc:
+                logger.warning("Skipping invalid birthday configuration: %s", exc)
         if not items:
             return HolidayCalendar(definitions)
 
@@ -240,9 +364,26 @@ class HolidayCalendar:
 
         return HolidayCalendar(definitions)
 
-    def get_holidays_for(self, target_date: date) -> List[HolidayOccurrence]:
+    def get_holidays_for(
+        self, target_date: date, session: str | None = None
+    ) -> List[HolidayOccurrence]:
+        """Return occurrences, optionally restricting birthdays to one group.
+
+        Args:
+            target_date: Solar date in the plugin's configured timezone.
+            session: Target group session, or None to query all groups.
+
+        Returns:
+            Holidays and birthdays matching the date and session.
+        """
         results: List[HolidayOccurrence] = []
         for definition in self._definitions:
+            if (
+                session is not None
+                and definition.target_session
+                and definition.target_session != session
+            ):
+                continue
             occurrence = definition.occurrence_on(target_date)
             if occurrence:
                 results.append(occurrence)
@@ -250,4 +391,6 @@ class HolidayCalendar:
 
     def list_all(self) -> List[HolidayDefinition]:
         return list(self._definitions)
+
+
 DATE_TOKEN_PATTERN = re.compile(r"^(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])$")

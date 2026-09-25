@@ -1,18 +1,19 @@
 from __future__ import annotations
 
 import asyncio
+import random
+from copy import deepcopy
 from datetime import datetime, time, timedelta
 from pathlib import Path
-import random
 from typing import Dict, List, Optional, Sequence
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from astrbot.api import logger
-from astrbot.api.event import filter, AstrMessageEvent, MessageChain
+from astrbot.api.event import AstrMessageEvent, MessageChain, filter
 from astrbot.api.star import Context, Star, register
 
 from .holidays import HolidayCalendar, HolidayOccurrence
-from .message_builder import build_prompt, build_system_prompt, extract_text_from_response
+from .message_builder import build_prompt, extract_text_from_response
 from .state_store import DeliveryStateStore
 
 
@@ -38,7 +39,10 @@ class FestivalGreetingPlugin(Star):
         self._sync_delivery_targets()
 
     def _load_settings(self) -> None:
-        tz_name = str(self._config.get("timezone", DEFAULT_TIMEZONE)).strip() or DEFAULT_TIMEZONE
+        tz_name = (
+            str(self._config.get("timezone", DEFAULT_TIMEZONE)).strip()
+            or DEFAULT_TIMEZONE
+        )
         try:
             self._timezone = ZoneInfo(tz_name)
         except ZoneInfoNotFoundError:
@@ -55,22 +59,40 @@ class FestivalGreetingPlugin(Star):
             logger.warning("无效的群名单模式 %s，采用 disabled", mode)
             mode = "disabled"
         self._group_filter_mode = mode
-        self._group_filter_entries = [str(item).strip() for item in self._config.get("group_filter_list", []) if str(item).strip()]
+        self._group_filter_entries = [
+            str(item).strip()
+            for item in self._config.get("group_filter_list", [])
+            if str(item).strip()
+        ]
 
-        repeat_mode = str(self._config.get("holiday_repeat_mode", "first-day")).strip().lower()
+        repeat_mode = (
+            str(self._config.get("holiday_repeat_mode", "first-day")).strip().lower()
+        )
         if repeat_mode not in {"first-day", "every-day"}:
             logger.warning("无效的节日推送策略 %s，采用 first-day", repeat_mode)
             repeat_mode = "first-day"
         self._holiday_repeat_mode = repeat_mode
 
-        self._llm_provider_id = str(self._config.get("llm_provider_id", "")).strip() or None
-        self._llm_style = str(self._config.get("llm_prompt_style", "warm")).strip() or "warm"
+        self._llm_provider_id = (
+            str(self._config.get("llm_provider_id", "")).strip() or None
+        )
+        self._persona_id = (
+            str(self._config.get("persona_id") or "default").strip() or "default"
+        )
         self._max_retries = max(0, int(self._config.get("max_generation_retries", 1)))
-        self._allow_manual_trigger = bool(self._config.get("allow_manual_trigger", True))
+        self._allow_manual_trigger = bool(
+            self._config.get("allow_manual_trigger", True)
+        )
 
         custom_defs = self._config.get("custom_holidays")
-        self._calendar = HolidayCalendar.from_config(custom_defs)
-        self._fallback_messages = [str(item).strip() for item in self._config.get("fallback_messages", []) if str(item).strip()]
+        self._calendar = HolidayCalendar.from_config(
+            custom_defs, self._config.get("birthdays")
+        )
+        self._fallback_messages = [
+            str(item).strip()
+            for item in self._config.get("fallback_messages", [])
+            if str(item).strip()
+        ]
 
     def _sync_delivery_targets(self) -> None:
         if not hasattr(self, "_state_store") or self._state_store is None:
@@ -90,7 +112,9 @@ class FestivalGreetingPlugin(Star):
             minute = max(0, min(59, int(minute_str)))
             return time(hour=hour, minute=minute)
         except Exception:
-            logger.warning("触发时间 %s 无效，使用默认 %s", raw, DEFAULT_TRIGGER.strftime("%H:%M"))
+            logger.warning(
+                "触发时间 %s 无效，使用默认 %s", raw, DEFAULT_TRIGGER.strftime("%H:%M")
+            )
             return DEFAULT_TRIGGER
 
     async def initialize(self):
@@ -134,7 +158,9 @@ class FestivalGreetingPlugin(Star):
     async def _prune_loop(self) -> None:
         while self._stop_event and not self._stop_event.is_set():
             try:
-                await asyncio.wait_for(self._stop_event.wait(), timeout=PRUNE_INTERVAL.total_seconds())
+                await asyncio.wait_for(
+                    self._stop_event.wait(), timeout=PRUNE_INTERVAL.total_seconds()
+                )
                 break
             except asyncio.TimeoutError:
                 cutoff = self._now() - RETENTION_WINDOW
@@ -143,9 +169,15 @@ class FestivalGreetingPlugin(Star):
                 return
 
     def _next_trigger(self, now: datetime) -> datetime:
-        candidate = datetime.combine(now.date(), self._trigger_time, tzinfo=self._timezone)
+        candidate = datetime.combine(
+            now.date(), self._trigger_time, tzinfo=self._timezone
+        )
         if candidate <= now:
-            candidate = datetime.combine(now.date() + timedelta(days=1), self._trigger_time, tzinfo=self._timezone)
+            candidate = datetime.combine(
+                now.date() + timedelta(days=1),
+                self._trigger_time,
+                tzinfo=self._timezone,
+            )
         return candidate
 
     async def _handle_tick(self, scheduled_time: datetime) -> None:
@@ -157,26 +189,35 @@ class FestivalGreetingPlugin(Star):
         if self._holiday_repeat_mode == "first-day":
             holidays = [item for item in holidays if item.is_first_day]
             if not holidays:
-                logger.debug("%s 非节日首日，配置为仅首日推送，跳过", scheduled_time.date())
+                logger.debug(
+                    "%s 非节日首日，配置为仅首日推送，跳过", scheduled_time.date()
+                )
                 return
 
         sessions = self._apply_group_filter(self._delivery_targets)
-        if not sessions:
-            logger.warning("未配置可用群聊，节日祝福不会发送")
-            return
-
         for holiday in holidays:
-            await self._deliver_holiday(holiday, sessions)
+            targets = (
+                self._apply_group_filter([holiday.definition.target_session])
+                if holiday.definition.target_session
+                else sessions
+            )
+            await self._deliver_holiday(holiday, targets)
 
-    async def _deliver_holiday(self, holiday: HolidayOccurrence, sessions: Sequence[str]) -> None:
+    async def _deliver_holiday(
+        self, holiday: HolidayOccurrence, sessions: Sequence[str]
+    ) -> None:
         for session in sessions:
             group_id = self._extract_group_id(session)
             now = self._now()
-            if not await self._state_store.should_send(group_id, holiday.key, now, self._cooldown_window_hours()):
+            if not await self._state_store.should_send(
+                group_id, holiday.key, now, self._cooldown_window_hours()
+            ):
                 continue
-            message = await self._generate_message(holiday, group_id)
+            message = await self._generate_message(holiday, session)
             if not message:
-                logger.warning("节日 %s 生成祝福失败，跳过群 %s", holiday.definition.name, group_id)
+                logger.warning(
+                    "节日 %s 生成祝福失败，跳过群 %s", holiday.definition.name, group_id
+                )
                 continue
             if await self._send_message(session, message):
                 await self._state_store.mark_sent(group_id, holiday.key, now)
@@ -194,19 +235,41 @@ class FestivalGreetingPlugin(Star):
             logger.error("发送节日祝福失败: %s", exc)
             return False
 
-    async def _generate_message(self, holiday: HolidayOccurrence, group_id: str) -> str:
-        provider = self._resolve_provider()
+    async def _generate_message(self, holiday: HolidayOccurrence, session: str) -> str:
+        """Generate a greeting using the persona selected in plugin settings.
+
+        Args:
+            holiday: Holiday occurrence to celebrate.
+            session: Full unified message origin of the target session.
+
+        Returns:
+            Generated greeting, or the fallback text if generation fails.
+        """
+        provider = await self._resolve_provider(session)
+        group_id = self._extract_group_id(session)
         prompt_context = f"目标群 ID: {group_id}"
-        prompt = build_prompt(holiday, self._llm_style, prompt_context)
-        system_prompt = build_system_prompt(self._llm_style)
+        prompt = build_prompt(holiday, prompt_context)
         last_error: Optional[Exception] = None
 
         if provider:
+            try:
+                persona = self.context.persona_manager.get_persona_v3_by_id(
+                    self._persona_id
+                )
+                if persona is None:
+                    raise ValueError(f"Greeting persona not found: {self._persona_id}")
+                system_prompt = persona.get("prompt", "")
+                contexts = persona.get("_begin_dialogs_processed", [])
+            except Exception as exc:
+                logger.exception(
+                    "Failed to resolve greeting persona for %s: %s", session, exc
+                )
+                return self._build_fallback(holiday)
             for attempt in range(self._max_retries + 1):
                 try:
                     response = await provider.text_chat(
                         prompt=prompt,
-                        context=[],
+                        contexts=deepcopy(contexts),
                         system_prompt=system_prompt,
                     )
                     text = extract_text_from_response(response)
@@ -214,7 +277,12 @@ class FestivalGreetingPlugin(Star):
                         return text
                 except Exception as exc:  # pragma: no cover - 调用依赖外部环境
                     last_error = exc
-                    logger.warning("调用 LLM 生成节日祝福失败 (attempt %s/%s): %s", attempt + 1, self._max_retries + 1, exc)
+                    logger.warning(
+                        "调用 LLM 生成节日祝福失败 (attempt %s/%s): %s",
+                        attempt + 1,
+                        self._max_retries + 1,
+                        exc,
+                    )
         else:
             logger.warning("未找到可用的 LLM Provider，使用兜底文案")
 
@@ -222,17 +290,20 @@ class FestivalGreetingPlugin(Star):
             logger.error("节日祝福生成失败，使用兜底文案: %s", last_error)
         return self._build_fallback(holiday)
 
-    def _resolve_provider(self):
+    async def _resolve_provider(self, session: str):
         try:
             if self._llm_provider_id:
                 provider = self.context.get_provider_by_id(self._llm_provider_id)
                 if provider:
                     return provider
                 logger.warning("未找到指定的 Provider %s", self._llm_provider_id)
-            providers = self.context.get_all_providers()
-            if providers:
-                return providers[0]
-        except (AttributeError, LookupError, RuntimeError) as exc:  # pragma: no cover
+            return await self.context.get_using_provider_async(umo=session)
+        except (
+            AttributeError,
+            LookupError,
+            RuntimeError,
+            ValueError,
+        ) as exc:  # pragma: no cover
             logger.warning("获取 Provider 失败: %s", exc)
         return None
 
@@ -244,6 +315,8 @@ class FestivalGreetingPlugin(Star):
                 date=holiday.current_date.strftime("%m月%d日"),
                 year=holiday.current_date.year,
             )
+        if holiday.definition.greeting_type == "生日":
+            return f"{holiday.definition.recipient}，生日快乐！愿你新的一岁平安顺遂，心愿成真。"
         return (
             f"{holiday.definition.name}快乐！愿每位小伙伴都能与家人朋友共享温暖时光，"
             "心愿成真，未来可期。"
@@ -260,7 +333,9 @@ class FestivalGreetingPlugin(Star):
     def _apply_group_filter(self, sessions: Sequence[str]) -> List[str]:
         if self._group_filter_mode == "disabled":
             return list(sessions)
-        filter_set = {self._normalize_filter_entry(item) for item in self._group_filter_entries}
+        filter_set = {
+            self._normalize_filter_entry(item) for item in self._group_filter_entries
+        }
         filter_set.discard("")
         result: List[str] = []
         if self._group_filter_mode == "whitelist":
@@ -325,9 +400,9 @@ class FestivalGreetingPlugin(Star):
             yield event.plain_result("插件未启用手动触发功能，请联系管理员修改配置。")
             return
         today = self._now().date()
-        holidays = self._calendar.get_holidays_for(today)
+        holidays = self._calendar.get_holidays_for(today, event.unified_msg_origin)
         if not holidays:
-            yield event.plain_result("今天没有配置的节日，稍后再试吧。")
+            yield event.plain_result("今天没有适用于当前群的节日或生日，稍后再试吧。")
             return
         session = event.unified_msg_origin
         sessions = self._apply_group_filter([session])
@@ -340,10 +415,14 @@ class FestivalGreetingPlugin(Star):
         for holiday in holidays:
             gid = self._extract_group_id(session)
             now = self._now()
-            if not await self._state_store.should_send(gid, holiday.key, now, self._cooldown_window_hours()):
-                yield event.plain_result(f"{holiday.definition.name} 的祝福今天已经发送过啦。")
+            if not await self._state_store.should_send(
+                gid, holiday.key, now, self._cooldown_window_hours()
+            ):
+                yield event.plain_result(
+                    f"{holiday.definition.name} 的祝福今天已经发送过啦。"
+                )
                 continue
-            message = await self._generate_message(holiday, gid)
+            message = await self._generate_message(holiday, session)
             if not message:
                 continue
             yield event.plain_result(message)
@@ -368,9 +447,9 @@ class FestivalGreetingPlugin(Star):
             return
 
         today = self._now().date()
-        holidays = self._calendar.get_holidays_for(today)
+        holidays = self._calendar.get_holidays_for(today, session)
         if not holidays:
-            yield event.plain_result("今天没有配置的节日，无需调试发送。")
+            yield event.plain_result("今天没有适用于当前群的节日或生日，无需调试发送。")
             return
 
         normalized_session = self._normalize_session(session)
@@ -378,13 +457,12 @@ class FestivalGreetingPlugin(Star):
             self._delivery_targets.append(normalized_session)
 
         target_session = normalized_session or session
-        group_id = self._extract_group_id(target_session)
 
         successes = 0
         failures: List[str] = []
 
         for holiday in holidays:
-            message = await self._generate_message(holiday, group_id)
+            message = await self._generate_message(holiday, target_session)
             if not message:
                 failures.append(holiday.definition.name)
                 continue
@@ -401,10 +479,8 @@ class FestivalGreetingPlugin(Star):
             yield event.plain_result(detail)
         else:
             if failures:
-                yield event.plain_result("调试发送失败，相关节日：" + ", ".join(failures))
+                yield event.plain_result(
+                    "调试发送失败，相关节日：" + ", ".join(failures)
+                )
             else:
                 yield event.plain_result("调试发送未产生任何祝福，请检查配置。")
-
-
-
-

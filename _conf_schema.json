@@ -30,21 +30,69 @@
     "type": "string",
     "description": "可选，指定用于生成祝福的 LLM Provider ID；留空则使用会话默认模型"
   },
-  "llm_prompt_style": {
+  "persona_id": {
     "type": "string",
-    "description": "祝福语气风格，可按需扩展",
-    "default": "warm",
-    "options": [
-      "warm",
-      "formal",
-      "cheerful"
-    ]
+    "description": "用于生成节日问候的人格",
+    "hint": "从 AstrBot 已配置的人格中选择，所有目标群均使用此人格。",
+    "default": "default",
+    "_special": "select_persona"
   },
   "custom_holidays": {
     "type": "list",
     "description": "自定义节日列表，按两行一组填写：第一行为日期（MMDD），第二行为节日名称",
     "items": {
       "type": "string"
+    }
+  },
+  "birthdays": {
+    "type": "template_list",
+    "description": "生日祝福",
+    "hint": "每条生日指定一个群，按每日触发时间发送；同样遵守群黑白名单。",
+    "default": [],
+    "templates": {
+      "birthday": {
+        "name": "生日",
+        "items": {
+          "recipient": {
+            "type": "string",
+            "description": "祝福对象（姓名或昵称）",
+            "default": ""
+          },
+          "target_session": {
+            "type": "string",
+            "description": "目标群会话 ID",
+            "hint": "填写完整统一会话 ID，例如 qq_bot:GroupMessage:123456；qq_bot 必须是实际平台实例 ID。",
+            "default": ""
+          },
+          "calendar": {
+            "type": "string",
+            "description": "历法：solar 公历 / lunar 农历",
+            "options": ["solar", "lunar"],
+            "default": "solar"
+          },
+          "month": {
+            "type": "int",
+            "description": "生日月份（1–12）",
+            "default": 1
+          },
+          "day": {
+            "type": "int",
+            "description": "生日日期",
+            "default": 1
+          },
+          "leap_month": {
+            "type": "bool",
+            "description": "农历闰月生日",
+            "hint": "仅农历生效；开启后仅在对应闰月发送，没有该闰月的年份不发送。",
+            "default": false
+          },
+          "extra_info": {
+            "type": "text",
+            "description": "附加信息（对方特点、关系远近等）",
+            "default": ""
+          }
+        }
+      }
     }
   },
   "fallback_messages": {

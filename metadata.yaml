@@ -1,5 +1,6 @@
-name: festival-greeter
+name: astrbot_plugin_festival_greeter
+display_name: 节日问候
 desc: 在节日期间为群聊推送LLM祝福消息
 version: v0.1.1
 author: 薄暝
-repo: https://github.com/xiaoxi68/astrbot_plugin_festival_greeter
+repo: https://github.com/kx501-hub/astrbot_plugin_festival_greeter

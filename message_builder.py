@@ -3,39 +3,40 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Callable, Dict, Iterable
+from typing import Any, Callable, Iterable
 
 from .holidays import HolidayOccurrence
 
-STYLE_GUIDANCE: Dict[str, str] = {
-    "warm": "语气温暖、真诚，适合多数正式或半正式群聊。",
-    "formal": "语气端庄，适合政务、企业或教学场景，避免网络用语。",
-    "cheerful": "语气活泼，适度俏皮但保持礼貌，突出节日氛围。",
-}
 
+def build_prompt(holiday: HolidayOccurrence, group_context: str | None = None) -> str:
+    """Build the greeting request without overriding the configured persona.
 
-def build_prompt(holiday: HolidayOccurrence, style: str, group_context: str | None = None) -> str:
-    guidance = STYLE_GUIDANCE.get(style, STYLE_GUIDANCE["warm"])
-    extra_context = f"群聊背景：{group_context}\n" if group_context else ""
+    Args:
+        holiday: Holiday occurrence to celebrate.
+        group_context: Optional description of the target group.
+
+    Returns:
+        Greeting instructions and holiday details for the model.
+    """
     payload = holiday.to_payload()
+    definition = holiday.definition
+    details = [f"日期：{payload['date']}"]
+    if definition.greeting_type == "生日":
+        calendar = "农历" if definition.calendar == "lunar" else "公历"
+        leap = "闰" if definition.leap_month else ""
+        details.append(f"生日：{calendar}{leap}{definition.month}月{definition.day}日")
+    else:
+        details.insert(0, f"节日名：{payload['name']}")
+    if payload["aliases"]:
+        details.append(f"节日别名：{', '.join(payload['aliases'])}")
+    if payload["description"]:
+        details.append(payload["description"])
+    if group_context:
+        details.append(group_context)
     return (
-        "你是一名擅长撰写中文祝福语的助理。\n"
-        f"节日名称：{payload['name']}\n"
-        f"节日日期：{payload['date']}\n"
-        f"节日别名：{', '.join(payload['aliases']) if payload['aliases'] else '无'}\n"
-        f"风格要求：{guidance}\n"
-        "请输出 1 条 40-80 字的群聊祝福，使用纯文本，适度引用节日传统或习俗，"
-        "避免表情符号与过度营销语。可包含 1 句对未来的期许或祝愿。\n"
-        f"{extra_context}"
-    ).strip()
-
-
-def build_system_prompt(style: str) -> str:
-    guidance = STYLE_GUIDANCE.get(style, STYLE_GUIDANCE["warm"])
-    return (
-        "你正在为机器人生成节日祝福。请保持中文输出，避免使用 HTML、Markdown、表情符号，"
-        "保持一句或两句平衡的祝福结构。"
-        f" 风格提示：{guidance}"
+        f"祝福类型：{definition.greeting_type}\n"
+        f"对象：{definition.recipient}\n"
+        f"附加信息：{'；'.join(details)}"
     )
 
 
@@ -53,7 +54,11 @@ def _extract_from_choices(choices: Any) -> str:
     if isinstance(choices, list):
         for choice in choices:
             if isinstance(choice, dict):
-                content = choice.get("message", {}).get("content") if isinstance(choice.get("message"), dict) else None
+                content = (
+                    choice.get("message", {}).get("content")
+                    if isinstance(choice.get("message"), dict)
+                    else None
+                )
                 if isinstance(content, str) and content.strip():
                     return content.strip()
                 text = choice.get("text")
@@ -172,9 +177,18 @@ _EXTRACTION_PIPELINE: tuple[Callable[[Any], str], ...] = (
 )
 
 
-THOUGHT_PREFIX_PATTERN = re.compile(r"^\s*(?:思考|分析|推理|思路|思绪|chain of thought|analysis|reasoning)[:：]", re.IGNORECASE)
-ANSWER_SPLIT_PATTERN = re.compile(r"(^|\n)\s*(?:答复|回答|回复|最终回答|最终答复|结论|final answer|answer)[:：]\s*", re.IGNORECASE)
-ANSWER_PREFIX_PATTERN = re.compile(r"^\s*(?:答复|回答|回复|最终回答|最终答复|结论|final answer|answer)[:：]\s*", re.IGNORECASE)
+THOUGHT_PREFIX_PATTERN = re.compile(
+    r"^\s*(?:思考|分析|推理|思路|思绪|chain of thought|analysis|reasoning)[:：]",
+    re.IGNORECASE,
+)
+ANSWER_SPLIT_PATTERN = re.compile(
+    r"(^|\n)\s*(?:答复|回答|回复|最终回答|最终答复|结论|final answer|answer)[:：]\s*",
+    re.IGNORECASE,
+)
+ANSWER_PREFIX_PATTERN = re.compile(
+    r"^\s*(?:答复|回答|回复|最终回答|最终答复|结论|final answer|answer)[:：]\s*",
+    re.IGNORECASE,
+)
 
 
 def _sanitize_generated_text(text: str) -> str:
@@ -184,7 +198,7 @@ def _sanitize_generated_text(text: str) -> str:
 
     matches = list(ANSWER_SPLIT_PATTERN.finditer(cleaned))
     if matches:
-        cleaned = cleaned[matches[-1].end():].strip()
+        cleaned = cleaned[matches[-1].end() :].strip()
 
     lines = []
     for line in cleaned.splitlines():
