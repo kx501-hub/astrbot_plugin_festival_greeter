@@ -1,62 +1,69 @@
 {
   "timezone": {
     "type": "string",
-    "description": "用于计算节日触发时间的时区，使用 IANA 标准格式",
-    "default": "Asia/Shanghai"
+    "description": "时区",
+    "default": "Asia/Shanghai",
+    "hint": "用于判断节日、生日日期和每日发送时间，例如 Asia/Shanghai。"
   },
   "trigger_time": {
     "type": "string",
-    "description": "每日检查节日并发送祝福的触发时间，24 小时制 HH:MM",
-    "default": "08:00"
+    "description": "每日发送时间",
+    "default": "08:00",
+    "hint": "每天在此时间检查当天的节日和生日，并发送祝福。使用 24 小时制 HH:MM，例如 08:00。"
   },
   "group_filter_mode": {
     "type": "string",
-    "description": "群名单模式：disabled 表示不启用名单控制，whitelist 仅允许名单内群，blacklist 排除名单内群",
+    "description": "群名单模式",
     "default": "disabled",
     "options": [
       "disabled",
       "whitelist",
       "blacklist"
-    ]
+    ],
+    "hint": "disabled：不限制；whitelist：只允许名单内的群；blacklist：排除名单内的群。适用于常规发送的节日和生日祝福，管理员调试指令不受此限制。"
   },
   "group_filter_list": {
     "type": "list",
-    "description": "群黑/白名单，依据 group_filter_mode 生效",
+    "description": "群名单",
     "items": {
       "type": "string"
-    }
+    },
+    "hint": "每项填写一个群号或完整群会话 ID，按群名单模式生效。填写名单不会自动登记普通节日的推送群。"
   },
   "llm_provider_id": {
     "type": "string",
-    "description": "可选，指定用于生成祝福的 LLM Provider ID；留空则使用会话默认模型"
+    "description": "祝福生成模型",
+    "hint": "填写 AstrBot 中的模型提供商 ID；留空使用目标会话的默认模型。节日和生日共用此设置。"
   },
   "persona_id": {
     "type": "string",
-    "description": "用于生成节日问候的人格",
-    "hint": "从 AstrBot 已配置的人格中选择，所有目标群均使用此人格。",
+    "description": "祝福人格",
+    "hint": "从 AstrBot 已配置的人格中选择。所有群的节日和生日祝福均使用此人格，传入祝福类型、对象和附加信息。",
     "default": "default",
     "_special": "select_persona"
   },
   "custom_holidays": {
     "type": "list",
-    "description": "自定义节日列表，按两行一组填写：第一行为日期（MMDD），第二行为节日名称",
+    "description": "自定义节日",
     "items": {
       "type": "string"
-    }
+    },
+    "hint": "每两个列表项为一组：第一项为公历日期 MMDD（例如 1001），第二项为节日名称。个人生日请在“生日祝福”中配置。"
   },
   "birthdays": {
     "type": "template_list",
     "description": "生日祝福",
-    "hint": "每条生日指定一个群，按每日触发时间发送；同样遵守群黑白名单。",
+    "hint": "添加生日条目，为每个人分别设置目标群、公历或农历日期和附加信息。按每日发送时间推送，无需提前登记该群；常规发送遵守群名单。",
     "default": [],
     "templates": {
       "birthday": {
-        "name": "生日",
+        "name": "生日祝福",
         "items": {
           "recipient": {
             "type": "string",
-            "description": "祝福对象（姓名或昵称）",
-            "default": ""
+            "description": "祝福对象",
+            "default": "",
+            "hint": "填写寿星的姓名或昵称，将作为“对象”传给人格；不会自动 @ 对方。"
           },
           "target_session": {
             "type": "string",
@@ -66,19 +73,25 @@
           },
           "calendar": {
             "type": "string",
-            "description": "历法：solar 公历 / lunar 农历",
-            "options": ["solar", "lunar"],
-            "default": "solar"
+            "description": "生日历法",
+            "options": [
+              "solar",
+              "lunar"
+            ],
+            "default": "solar",
+            "hint": "solar 表示公历，lunar 表示农历。下方月份和日期按所选历法填写。"
           },
           "month": {
             "type": "int",
-            "description": "生日月份（1–12）",
-            "default": 1
+            "description": "生日月份",
+            "default": 1,
+            "hint": "填写 1–12，农历正月填 1，腊月填 12。"
           },
           "day": {
             "type": "int",
-            "description": "生日日期",
-            "default": 1
+            "description": "生日几号",
+            "default": 1,
+            "hint": "填写当月的日数：公历 1–31，农历 1–30，需为有效日期。某年没有该日期则不发送，例如平年的公历 2 月 29 日。"
           },
           "leap_month": {
             "type": "bool",
@@ -88,37 +101,43 @@
           },
           "extra_info": {
             "type": "text",
-            "description": "附加信息（对方特点、关系远近等）",
-            "default": ""
+            "description": "附加信息",
+            "default": "",
+            "hint": "可选，填写对方特点、兴趣、关系远近等，将随生日信息一起传给人格。"
           }
-        }
+        },
+        "hint": "为一位寿星配置生日及接收祝福的群。"
       }
     }
   },
   "fallback_messages": {
     "type": "list",
-    "description": "当 LLM 调用失败时可选的兜底祝福语模板",
+    "description": "备用祝福模板",
     "items": {
       "type": "string"
-    }
+    },
+    "hint": "人格读取或模型生成失败时随机使用一条。支持 {holiday}（节日名或“某人的生日”）、{date}（公历月日）、{year}（公历年份）。留空使用内置备用祝福；这些固定模板不会经过人格生成。"
   },
   "max_generation_retries": {
     "type": "int",
-    "description": "调用 LLM 失败后的最大重试次数",
-    "default": 1
+    "description": "生成失败重试次数",
+    "default": 1,
+    "hint": "首次生成失败后的额外重试次数，0 表示不重试，1 表示最多调用两次。"
   },
   "allow_manual_trigger": {
     "type": "bool",
-    "description": "是否允许通过指令手动触发节日祝福发送",
-    "default": true
+    "description": "允许手动发送",
+    "default": true,
+    "hint": "允许通过 /festival-send 发送当前群当天的节日和生日祝福。此开关不影响管理员使用 /festival-debug 调试。"
   },
   "holiday_repeat_mode": {
     "type": "string",
-    "description": "节日期间的推送策略：first-day 仅节日首日推送，every-day 表示节日持续期间每日推送",
+    "description": "多日节日推送策略",
     "default": "first-day",
     "options": [
       "first-day",
       "every-day"
-    ]
+    ],
+    "hint": "用于定时推送：first-day 仅节日首日发送，every-day 在节日持续期间每天发送。生日仅在配置日期当天发送。"
   }
 }
