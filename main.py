@@ -222,11 +222,28 @@ class FestivalGreetingPlugin(Star):
                     "节日 %s 生成祝福失败，跳过群 %s", holiday.definition.name, group_id
                 )
                 continue
-            if await self._send_message(session, message):
+            if await self._send_message(session, message, holiday):
                 await self._state_store.mark_sent(group_id, holiday.key, now)
 
-    async def _send_message(self, session: str, message: str) -> bool:
-        chain = MessageChain().message(message)
+    async def _send_message(
+        self,
+        session: str,
+        message: str,
+        holiday: HolidayOccurrence | None = None,
+    ) -> bool:
+        chain = MessageChain()
+        if (
+            holiday
+            and holiday.definition.greeting_type == "生日"
+            and holiday.definition.recipient != "全群"
+            and holiday.definition.mention_member
+            and holiday.definition.member_id
+        ):
+            chain.at(
+                holiday.definition.recipient,
+                holiday.definition.member_id,
+            ).message(" ")
+        chain.message(message)
         try:
             success = await self.context.send_message(session, chain)
             if not success:
@@ -428,7 +445,19 @@ class FestivalGreetingPlugin(Star):
             message = await self._generate_message(holiday, session)
             if not message:
                 continue
-            yield event.plain_result(message)
+            chain = MessageChain()
+            if (
+                holiday.definition.greeting_type == "生日"
+                and holiday.definition.recipient != "全群"
+                and holiday.definition.mention_member
+                and holiday.definition.member_id
+            ):
+                chain.at(
+                    holiday.definition.recipient,
+                    holiday.definition.member_id,
+                ).message(" ")
+            chain.message(message)
+            yield event.chain_result(chain.chain)
             await self._state_store.mark_sent(gid, holiday.key, now)
 
     @filter.command("festival-debug")
@@ -469,7 +498,7 @@ class FestivalGreetingPlugin(Star):
             if not message:
                 failures.append(holiday.definition.name)
                 continue
-            sent = await self._send_message(target_session, message)
+            sent = await self._send_message(target_session, message, holiday)
             if sent:
                 successes += 1
             else:

@@ -63,7 +63,19 @@
             "type": "string",
             "description": "祝福对象",
             "default": "",
-            "hint": "填写寿星的姓名或昵称，将作为“对象”传给人格；不会自动 @ 对方。"
+            "hint": "填写寿星的姓名或昵称，将作为“对象”传给人格；是否 @ 对方由下方开关控制。"
+          },
+          "mention_member": {
+            "type": "bool",
+            "description": "@ 寿星",
+            "hint": "开启后，在生日祝福正文前 @ 下方成员 ID 对应的成员。对象为“全群”时不会 @ 全体成员。",
+            "default": false
+          },
+          "member_id": {
+            "type": "string",
+            "description": "成员 ID",
+            "hint": "开启“@ 寿星”时必填。QQ 平台填写 QQ 号，其他平台填写对应的用户 ID。",
+            "default": ""
           },
           "target_session": {
             "type": "string",

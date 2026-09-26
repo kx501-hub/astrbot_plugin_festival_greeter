@@ -46,7 +46,7 @@ festival_greeter/
 - `llm_provider_id`：可选，指定用于祝福生成的 LLM Provider ID；留空使用目标会话的默认模型。
 - `persona_id`：通过人格选择器选择 AstrBot 已配置的人格，所有目标群统一使用所选人格；初始值为 `default`（AstrBot 内置默认人格）。
 - `custom_holidays`：补充节日，按两行一组填写：第一行写日期（`MMDD`，如 `0810`），第二行写节日名称；未配置的节日仍沿用内置集合。
-- `birthdays`：在“生日祝福”中添加条目，填写对象、完整群会话 ID、历法、月、日及可选附加信息。
+- `birthdays`：在“生日祝福”中添加条目，填写对象、完整群会话 ID、历法、月、日及可选附加信息；需要提醒寿星时可开启“@ 寿星”并填写成员 ID。
 - `fallback_messages`：兜底祝福模板，支持 `{holiday}`、`{date}`、`{year}` 占位符。
 - `max_generation_retries`：LLM 调用失败时的额外重试次数。
 - `allow_manual_trigger`：是否允许 `/festival-send` 指令。
@@ -91,7 +91,7 @@ festival_greeter/
 附加信息：日期：2026-09-25；生日：农历8月15日；老朋友，喜欢摄影，希望语气亲切；目标群 ID: 123456
 ```
 
-对象以姓名或昵称写入祝福，不会自动生成平台的 @ 提醒。`/festival-send` 和 `/festival-debug` 同时处理当前群当天的节日与生日；不同寿星的生日分别记录，避免互相影响。
+对象以姓名或昵称写入祝福。开启“@ 寿星”并填写成员 ID 后，定时推送、`/festival-send` 和 `/festival-debug` 都会在生日祝福正文前 @ 对应成员；对象为“全群”时不会 @ 全体成员。QQ 平台的成员 ID 填 QQ 号，其他平台填写相应的用户 ID。不同寿星的生日分别记录，避免互相影响。
 
 公历 2 月 29 日只在闰年发送；农历按实际月日匹配，某年没有该日则不发送。普通农历月不会在同名闰月重复发送；开启“农历闰月生日”后，仅在对应闰月发送，没有该闰月的年份不发送。农历换算依赖 [lunardate](https://pypi.org/project/lunardate/)，支持农历 1900–2099 年；更新插件时需安装 `requirements.txt` 中的依赖。
 

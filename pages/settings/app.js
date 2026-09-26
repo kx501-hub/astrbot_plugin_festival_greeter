@@ -65,6 +65,10 @@ function renderEntries(kind, records) {
     const grid = node("div", undefined, "grid");
     if (kind === "birthdays") {
       field(grid, "祝福对象", record, "recipient");
+      const mention = field(grid, "@ 寿星", record, "mention_member", {type: "checkbox"});
+      const memberId = field(grid, "成员 ID", record, "member_id");
+      memberId.disabled = !record.mention_member;
+      mention.addEventListener("change", () => { memberId.disabled = !record.mention_member; });
       field(grid, "完整目标群会话 ID", record, "target_session");
       const calendar = field(grid, "历法", record, "calendar", {choices: [["solar", "公历"], ["lunar", "农历"]]});
       field(grid, "月份", record, "month", {type: "number", min: 1, max: 12});
@@ -143,7 +147,7 @@ $("save").onclick = () => run(async () => {
   state.revision = result.revision; dirty = false; message("已保存，后续调度使用新的生日和节日配置。");
 });
 $("add-birthday").onclick = () => {
-  birthdays.push({__template_key: "birthday", recipient: "", target_session: "", calendar: "solar", month: 1, day: 1, leap_month: false, extra_info: ""});
+  birthdays.push({__template_key: "birthday", recipient: "", mention_member: false, member_id: "", target_session: "", calendar: "solar", month: 1, day: 1, leap_month: false, extra_info: ""});
   changed(); renderEntries("birthdays", birthdays);
 };
 $("add-holiday").onclick = () => {

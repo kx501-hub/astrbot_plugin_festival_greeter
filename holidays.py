@@ -25,6 +25,8 @@ class HolidayDefinition:
     dynamic_dates: Mapping[int, tuple[int, int]] = field(default_factory=dict)
     greeting_type: str = "节日"
     recipient: str = "全群"
+    mention_member: bool = False
+    member_id: str = ""
     target_session: str = ""
     calendar: str = "solar"
     leap_month: bool = False
@@ -35,7 +37,10 @@ class HolidayDefinition:
             identity = f"{self.target_session}|{self.recipient}|{self.calendar}|{self.month}|{self.day}|{self.leap_month}"
             return "birthday-" + sha256(identity.encode("utf-8")).hexdigest()[:24]
         base = re.sub(r"[^a-z0-9]+", "-", self.name.lower())
-        return base.strip("-") or "holiday-" + sha256(self.name.encode("utf-8")).hexdigest()[:16]
+        return (
+            base.strip("-")
+            or "holiday-" + sha256(self.name.encode("utf-8")).hexdigest()[:16]
+        )
 
     @property
     def duration_days(self) -> int:
@@ -240,11 +245,13 @@ class HolidayCalendar:
                     continue
                 # 若自定义节日与默认同名，覆盖默认定义。
                 self._definitions = [
-                    d for d in self._definitions
+                    d
+                    for d in self._definitions
                     if not (
                         d.greeting_type == item.greeting_type
                         and (
-                            d.slug == item.slug if item.greeting_type == "生日"
+                            d.slug == item.slug
+                            if item.greeting_type == "生日"
                             else d.name == item.name
                         )
                     )
@@ -270,6 +277,8 @@ class HolidayCalendar:
                 if not isinstance(raw, dict):
                     raise TypeError("Birthday entry must be an object")
                 recipient = str(raw.get("recipient", "")).strip()
+                mention_member = bool(raw.get("mention_member", False))
+                member_id = str(raw.get("member_id", "")).strip()
                 session = str(raw.get("target_session", "")).strip()
                 parts = session.split(":", 2)
                 if (
@@ -282,6 +291,8 @@ class HolidayCalendar:
                     raise ValueError(
                         "Recipient and a full group session ID are required"
                     )
+                if mention_member and not member_id:
+                    raise ValueError("Member ID is required when mentioning is enabled")
                 calendar = raw.get("calendar", "solar")
                 month, day = int(raw.get("month", 0)), int(raw.get("day", 0))
                 if calendar == "solar":
@@ -299,6 +310,8 @@ class HolidayCalendar:
                         description=str(raw.get("extra_info", "")).strip(),
                         greeting_type="生日",
                         recipient=recipient,
+                        mention_member=mention_member,
+                        member_id=member_id,
                         target_session=session,
                         calendar=calendar,
                         leap_month=bool(raw.get("leap_month", False))

@@ -4,7 +4,7 @@
 <header><div><div class="eyebrow">FESTIVAL GREETER</div><h1>把祝福安排好</h1><p class="muted" id="summary">正在读取配置…</p></div><div class="actions"><button id="reload" disabled>重新载入</button><button class="primary" id="save" disabled>保存更改</button></div></header>
 <div id="status" class="status" role="status" aria-live="polite">正在连接 AstrBot…</div>
 <p class="muted">时区、发送时间、人格和群名单在插件基础配置中设置。这里的生日与节日保存后立即生效。</p>
-<section><div class="entry-head"><h2>生日祝福</h2><button id="add-birthday" disabled>＋ 添加生日</button></div><p class="muted">填写完整目标群会话 ID；公历或农历按各条生日独立设置，常规发送仍遵守群名单。</p><div id="birthdays"></div></section>
+<section><div class="entry-head"><h2>生日祝福</h2><button id="add-birthday" disabled>＋ 添加生日</button></div><p class="muted">填写完整目标群会话 ID；可选择 @ 成员并填写成员 ID。公历或农历按各条生日独立设置，常规发送仍遵守群名单。</p><div id="birthdays"></div></section>
 <section><div class="entry-head"><h2>自定义节日</h2><button id="add-holiday" disabled>＋ 添加节日</button></div><p class="muted">使用公历日期，同名节日覆盖内置定义，其余沿用内置集合。普通节日只发送到已登记的目标群。</p><div id="holidays"></div></section>
 <section><h2>日期安排与提示词预览</h2><p class="muted">按当前草稿、群名单和推送策略计算。这里只展示安排与输入提示词，不调用模型、不发送消息；实际发送还会检查去重记录。</p><div class="toolbar"><label>起始公历日期<input id="start" type="date"></label><label>预览天数<select id="days"><option value="30">30 天</option><option value="90">90 天</option><option value="366">366 天</option></select></label><button id="preview" disabled>预览当前草稿</button></div><div id="preview-result"></div></section>
 <section><div class="entry-head"><h2>最近发送记录</h2><button id="history-refresh" disabled>刷新记录</button></div><p class="muted">最多展示 200 条已记录的成功发送。旧记录只有群、内部标识和时间，不包含祝福正文。</p><div id="history"></div></section>
