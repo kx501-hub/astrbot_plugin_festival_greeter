@@ -35,7 +35,7 @@ class HolidayDefinition:
             identity = f"{self.target_session}|{self.recipient}|{self.calendar}|{self.month}|{self.day}|{self.leap_month}"
             return "birthday-" + sha256(identity.encode("utf-8")).hexdigest()[:24]
         base = re.sub(r"[^a-z0-9]+", "-", self.name.lower())
-        return base.strip("-") or "holiday"
+        return base.strip("-") or "holiday-" + sha256(self.name.encode("utf-8")).hexdigest()[:16]
 
     @property
     def duration_days(self) -> int:
@@ -240,7 +240,14 @@ class HolidayCalendar:
                     continue
                 # 若自定义节日与默认同名，覆盖默认定义。
                 self._definitions = [
-                    d for d in self._definitions if d.slug != item.slug
+                    d for d in self._definitions
+                    if not (
+                        d.greeting_type == item.greeting_type
+                        and (
+                            d.slug == item.slug if item.greeting_type == "生日"
+                            else d.name == item.name
+                        )
+                    )
                 ]
                 self._definitions.append(item)
 

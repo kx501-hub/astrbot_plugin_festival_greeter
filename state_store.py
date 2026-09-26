@@ -56,6 +56,10 @@ class DeliveryStateStore:
         async with self._lock:
             records = self._state["deliveries"].get(str(group_id), {})
             value = records.get(holiday_key)
+            # Older Chinese holidays shared one key. Honor it for that date to
+            # avoid sending the same greeting again immediately after upgrading.
+            if not value and holiday_key.startswith("holiday-") and len(holiday_key) > 18:
+                value = records.get("holiday-" + holiday_key[-10:])
         if not value:
             return None
         try:
@@ -89,6 +93,16 @@ class DeliveryStateStore:
             for group, records in self._state.get("deliveries", {}).items()
             if any(not key.startswith("birthday-") for key in records)
         ]
+
+    async def recent_deliveries(self, limit: int = 200) -> list[dict]:
+        """Return a detached view of recorded successful deliveries."""
+        async with self._lock:
+            rows = [
+                {"group": group, "key": key, "sent_at": timestamp}
+                for group, records in self._state.get("deliveries", {}).items()
+                for key, timestamp in records.items()
+            ]
+        return sorted(rows, key=lambda row: row["sent_at"], reverse=True)[:limit]
 
     async def prune_before(self, cutoff: datetime) -> None:
         async with self._lock:

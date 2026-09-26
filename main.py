@@ -15,6 +15,7 @@ from astrbot.api.star import Context, Star, register
 from .holidays import HolidayCalendar, HolidayOccurrence
 from .message_builder import build_prompt, extract_text_from_response
 from .state_store import DeliveryStateStore
+from .page_api import FestivalPageAPI
 
 
 DEFAULT_TIMEZONE = "Asia/Shanghai"
@@ -30,6 +31,7 @@ RETENTION_WINDOW = timedelta(days=400)
 class FestivalGreetingPlugin(Star):
     def __init__(self, context: Context, config: Dict | None = None) -> None:
         super().__init__(context)
+        self._config_source = config
         self._config = dict(config or {})
         self._stop_event: Optional[asyncio.Event] = None
         self._scheduler_task: Optional[asyncio.Task] = None
@@ -37,6 +39,7 @@ class FestivalGreetingPlugin(Star):
         self._load_settings()
         self._state_store = DeliveryStateStore(self._resolve_state_path())
         self._sync_delivery_targets()
+        self._page_api = FestivalPageAPI(self)
 
     def _load_settings(self) -> None:
         tz_name = (
