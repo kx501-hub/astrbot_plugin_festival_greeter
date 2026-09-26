@@ -1,6 +1,6 @@
 name: astrbot_plugin_festival_greeter
 display_name: 节日与生日祝福
 desc: 使用指定的 AstrBot 人格生成群聊祝福，支持节日推送及按公历或农历配置生日。
-version: v0.1.1
+version: v0.2.0
 author: 薄暝
 repo: https://github.com/kx501-hub/astrbot_plugin_festival_greeter
