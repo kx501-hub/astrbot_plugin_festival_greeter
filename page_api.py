@@ -58,18 +58,32 @@ def validate_document(body):
                 raise ValueError("节日别名必须是文本列表")
             if not isinstance(item.get("description", ""), str):
                 raise ValueError("节日说明必须是文本")
+            session = item.get("target_session", "")
+            if not isinstance(session, str):
+                raise ValueError("节日目标群会话 ID 必须是文本")
+            if session.strip():
+                parts = session.strip().split(":", 2)
+                if (
+                    len(parts) != 3
+                    or not parts[0]
+                    or parts[1] != "GroupMessage"
+                    or not parts[2]
+                ):
+                    raise ValueError(
+                        "节日目标群需填写完整会话 ID，例如 bot:GroupMessage:123456"
+                    )
     for item in birthdays:
         if not isinstance(item, dict):
             raise ValueError("生日必须是对象")
-        if not isinstance(item.get("recipient"), str) or not item["recipient"].strip():
-            raise ValueError("请填写生日祝福对象")
+        if not isinstance(item.get("recipient", ""), str):
+            raise ValueError("生日称呼必须是文本")
         if not isinstance(item.get("mention_member", False), bool):
             raise ValueError("@ 寿星开关必须为布尔值")
         member_id = item.get("member_id", "")
         if not isinstance(member_id, str):
             raise ValueError("成员 ID 必须是文本")
-        if item.get("mention_member", False) and not member_id.strip():
-            raise ValueError("开启 @ 寿星后必须填写成员 ID")
+        if not member_id.strip():
+            raise ValueError("请填写成员 ID")
         session = item.get("target_session")
         parts = session.strip().split(":", 2) if isinstance(session, str) else []
         if (
@@ -134,9 +148,7 @@ class FestivalPageAPI:
                 "trigger_time": self.plugin._trigger_time.strftime("%H:%M"),
                 "today": self.plugin._now().date().isoformat(),
                 "persona": self.plugin._persona_id,
-                "targets": self.plugin._apply_group_filter(
-                    self.plugin._delivery_targets
-                ),
+                "targets": self.plugin._get_unbound_targets(),
             }
         )
 
@@ -200,7 +212,7 @@ class FestivalPageAPI:
                     targets = self.plugin._apply_group_filter(
                         [definition.target_session]
                         if definition.target_session
-                        else self.plugin._delivery_targets
+                        else self.plugin._get_unbound_targets()
                     )
                     rows.append(
                         {

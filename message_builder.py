@@ -25,8 +25,14 @@ def build_prompt(holiday: HolidayOccurrence, group_context: str | None = None) -
         calendar = "农历" if definition.calendar == "lunar" else "公历"
         leap = "闰" if definition.leap_month else ""
         details.append(f"生日：{calendar}{leap}{definition.month}月{definition.day}日")
+        if definition.recipient:
+            details.append(f"称呼：{definition.recipient}")
     else:
         details.insert(0, f"节日名：{payload['name']}")
+        if payload["length_days"] > 1:
+            details.append(
+                f"节期：第 {payload['day_offset'] + 1} 天，共 {payload['length_days']} 天"
+            )
     if payload["aliases"]:
         details.append(f"节日别名：{', '.join(payload['aliases'])}")
     if payload["description"]:
@@ -35,7 +41,7 @@ def build_prompt(holiday: HolidayOccurrence, group_context: str | None = None) -
         details.append(group_context)
     return (
         f"祝福类型：{definition.greeting_type}\n"
-        f"对象：{definition.recipient}\n"
+        f"对象：{'对应成员' if definition.greeting_type == '生日' else definition.recipient}\n"
         f"附加信息：{'；'.join(details)}"
     )
 

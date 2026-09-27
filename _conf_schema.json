@@ -14,13 +14,12 @@
   "group_filter_mode": {
     "type": "string",
     "description": "群名单模式",
-    "default": "disabled",
+    "default": "whitelist",
     "options": [
-      "disabled",
       "whitelist",
       "blacklist"
     ],
-    "hint": "disabled：不限制；whitelist：只允许名单内的群；blacklist：排除名单内的群。适用于常规发送的节日和生日祝福，管理员调试指令不受此限制。"
+    "hint": "whitelist：名单本身就是发送目标；blacklist：向机器人可发现的全部群发送，但排除名单内的群。管理员调试指令不受此限制。"
   },
   "group_filter_list": {
     "type": "list",
@@ -28,7 +27,7 @@
     "items": {
       "type": "string"
     },
-    "hint": "每项填写一个群号或完整群会话 ID，按群名单模式生效。填写名单不会自动登记普通节日的推送群。"
+    "hint": "白名单模式下，每项就是一个发送目标；黑名单模式下，每项是禁止发送的群。推荐填写完整群会话 ID，例如 bot:GroupMessage:123456；只填群号时按 aiocqhttp 群处理。"
   },
   "llm_provider_id": {
     "type": "string",
@@ -43,39 +42,89 @@
     "_special": "select_persona"
   },
   "custom_holidays": {
-    "type": "list",
+    "type": "template_list",
     "description": "自定义节日",
-    "items": {
-      "type": "string"
+    "hint": "一条配置对应一个节日。可设置开始日期、持续天数和目标群；目标群留空时使用当前名单模式计算出的群。",
+    "default": [],
+    "templates": {
+      "holiday": {
+        "name": "自定义节日",
+        "hint": "配置每年重复的公历节日或纪念日。",
+        "items": {
+          "name": {
+            "type": "string",
+            "description": "节日名称",
+            "default": ""
+          },
+          "target_session": {
+            "type": "string",
+            "description": "目标群会话 ID",
+            "hint": "可选。填写完整统一会话 ID，例如 bot_instance:GroupMessage:123456。留空时使用白名单目标或黑名单模式下发现的群。",
+            "default": ""
+          },
+          "month": {
+            "type": "int",
+            "description": "开始月份",
+            "hint": "公历月份，填写 1–12。",
+            "default": 1
+          },
+          "day": {
+            "type": "int",
+            "description": "开始日期",
+            "hint": "公历日期，需与月份组成有效日期。",
+            "default": 1
+          },
+          "length_days": {
+            "type": "int",
+            "description": "持续天数",
+            "hint": "1 表示仅开始当天；大于 1 表示从开始日期起连续多日，支持跨年。是否每天发送由“多日节日推送策略”控制。",
+            "default": 1
+          },
+          "aliases": {
+            "type": "list",
+            "description": "节日别名",
+            "hint": "可选，每项填写一个别名。",
+            "items": {
+              "type": "string"
+            }
+          },
+          "description": {
+            "type": "text",
+            "description": "附加说明",
+            "hint": "可选，将作为附加信息传给祝福人格。",
+            "default": ""
+          }
+        }
+      }
     },
-    "hint": "每两个列表项为一组：第一项为公历日期 MMDD（例如 1001），第二项为节日名称。个人生日请在“生日祝福”中配置。 推荐在插件 Pages → 祝福管理中编辑；对象格式的高级节日请使用 Pages。"
+    "obvious_hint": true
   },
   "birthdays": {
     "type": "template_list",
     "description": "生日祝福",
-    "hint": "添加生日条目，为每个人分别设置目标群、公历或农历日期和附加信息。按每日发送时间推送，无需提前登记该群；常规发送遵守群名单。 也可在插件 Pages → 祝福管理中可视化编辑。",
+    "hint": "添加生日条目，成员 ID 必填；称呼／备注可选。每条可分别设置目标群、公历或农历日期和附加信息。也可在插件 Pages → 祝福管理中编辑。",
     "default": [],
     "templates": {
       "birthday": {
         "name": "生日祝福",
         "items": {
+          "member_id": {
+            "type": "string",
+            "description": "成员 ID",
+            "hint": "必填，用于唯一标识寿星。QQ 平台填写 QQ 号，其他平台填写对应的用户 ID。",
+            "default": ""
+          },
           "recipient": {
             "type": "string",
-            "description": "祝福对象",
+            "description": "称呼／备注",
             "default": "",
-            "hint": "填写寿星的姓名或昵称，将作为“对象”传给人格；是否 @ 对方由下方开关控制。"
+            "hint": "可选，例如姓名、昵称或关系说明；会作为附加信息传给人格，不用于定位成员。"
           },
           "mention_member": {
             "type": "bool",
             "description": "@ 寿星",
-            "hint": "开启后，在生日祝福正文前 @ 下方成员 ID 对应的成员。对象为“全群”时不会 @ 全体成员。",
+            "hint": "开启后，在生日祝福正文前 @ 成员 ID 对应的成员。生日祝福不会 @ 全体成员。",
             "default": false
-          },
-          "member_id": {
-            "type": "string",
-            "description": "成员 ID",
-            "hint": "开启“@ 寿星”时必填。QQ 平台填写 QQ 号，其他平台填写对应的用户 ID。",
-            "default": ""
           },
           "target_session": {
             "type": "string",

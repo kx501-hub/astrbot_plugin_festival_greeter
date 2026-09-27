@@ -17,7 +17,7 @@ class DeliveryStateStore:
     def __init__(self, storage_path: Path) -> None:
         self._path = storage_path
         self._lock = asyncio.Lock()
-        self._state: Dict[str, Dict[str, str]] = {"deliveries": {}}
+        self._state: dict = {"deliveries": {}, "known_groups": []}
         self._ensure_parent()
         self._load()
 
@@ -40,6 +40,13 @@ class DeliveryStateStore:
                         str(key): str(timestamp) for key, timestamp in records.items()
                     }
                 self._state["deliveries"] = normalized
+            known_groups = raw.get("known_groups")
+            if isinstance(known_groups, list):
+                self._state["known_groups"] = [
+                    str(session).strip()
+                    for session in known_groups
+                    if str(session).strip()
+                ]
         except (json.JSONDecodeError, OSError) as exc:  # pragma: no cover - IO 容错
             logger.warning("加载节日发送记录失败: %s", exc)
 
@@ -58,7 +65,11 @@ class DeliveryStateStore:
             value = records.get(holiday_key)
             # Older Chinese holidays shared one key. Honor it for that date to
             # avoid sending the same greeting again immediately after upgrading.
-            if not value and holiday_key.startswith("holiday-") and len(holiday_key) > 18:
+            if (
+                not value
+                and holiday_key.startswith("holiday-")
+                and len(holiday_key) > 18
+            ):
                 value = records.get("holiday-" + holiday_key[-10:])
         if not value:
             return None
@@ -87,12 +98,47 @@ class DeliveryStateStore:
             await self._flush()
 
     def list_groups(self) -> List[str]:
-        # Birthday-only groups must not become regular holiday subscribers on restart.
+        # Explicitly bound groups must not become general holiday subscribers.
         return [
             group
             for group, records in self._state.get("deliveries", {}).items()
-            if any(not key.startswith("birthday-") for key in records)
+            if any(
+                not key.startswith(("birthday-", "target-holiday-")) for key in records
+            )
         ]
+
+    def list_known_groups(self) -> list[str]:
+        """Return group sessions observed or discovered by the plugin."""
+        return list(self._state.get("known_groups", []))
+
+    async def add_known_group(self, session: str) -> None:
+        """Persist a group session for blacklist-mode delivery.
+
+        Args:
+            session: Full unified group session ID.
+        """
+        await self.add_known_groups([session])
+
+    async def add_known_groups(self, sessions: list[str]) -> None:
+        """Persist multiple discovered group sessions in one write.
+
+        Args:
+            sessions: Full unified group session IDs.
+        """
+        normalized = [
+            str(session).strip() for session in sessions if str(session).strip()
+        ]
+        if not normalized:
+            return
+        async with self._lock:
+            groups = self._state.setdefault("known_groups", [])
+            changed = False
+            for session in normalized:
+                if session not in groups:
+                    groups.append(session)
+                    changed = True
+            if changed:
+                await self._flush()
 
     async def recent_deliveries(self, limit: int = 200) -> list[dict]:
         """Return a detached view of recorded successful deliveries."""

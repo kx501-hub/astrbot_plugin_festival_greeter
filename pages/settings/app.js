@@ -64,11 +64,9 @@ function renderEntries(kind, records) {
     header.append(remove); card.append(header);
     const grid = node("div", undefined, "grid");
     if (kind === "birthdays") {
-      field(grid, "祝福对象", record, "recipient");
-      const mention = field(grid, "@ 寿星", record, "mention_member", {type: "checkbox"});
-      const memberId = field(grid, "成员 ID", record, "member_id");
-      memberId.disabled = !record.mention_member;
-      mention.addEventListener("change", () => { memberId.disabled = !record.mention_member; });
+      field(grid, "成员 ID", record, "member_id");
+      field(grid, "称呼／备注（可选）", record, "recipient");
+      field(grid, "@ 寿星", record, "mention_member", {type: "checkbox"});
       field(grid, "完整目标群会话 ID", record, "target_session");
       const calendar = field(grid, "历法", record, "calendar", {choices: [["solar", "公历"], ["lunar", "农历"]]});
       field(grid, "月份", record, "month", {type: "number", min: 1, max: 12});
@@ -83,8 +81,9 @@ function renderEntries(kind, records) {
       field(grid, "附加信息（可选）", record, "extra_info", {text: true, wide: true});
     } else {
       field(grid, "节日名称", record, "name");
-      field(grid, "公历月份", record, "month", {type: "number", min: 1, max: 12});
-      field(grid, "公历日期", record, "day", {type: "number", min: 1, max: 31});
+      field(grid, "目标群会话 ID（可选）", record, "target_session");
+      field(grid, "开始月份（公历）", record, "month", {type: "number", min: 1, max: 12});
+      field(grid, "开始日期（公历）", record, "day", {type: "number", min: 1, max: 31});
       field(grid, "持续天数", record, "length_days", {type: "number", min: 1, max: 366});
       field(grid, "别名（用逗号分隔）", record, "aliasesText");
       field(grid, "说明（可选）", record, "description", {text: true, wide: true});
@@ -94,16 +93,13 @@ function renderEntries(kind, records) {
 }
 function draft() {
   const records = holidays.map(({aliasesText, ...item}) => ({
-    ...item, aliases: aliasesText.split(/[,，]/).map((x) => x.trim()).filter(Boolean),
+    __template_key: "holiday",
+    ...item,
+    aliases: aliasesText.split(/[,，]/).map((x) => x.trim()).filter(Boolean),
   }));
-  // Retain the original simple list format where possible, for the standard config editor.
-  const simple = records.every((item) => item.length_days === 1 && !item.description && !item.aliases.length
-    && Object.keys(item).every((key) => ["name", "month", "day", "length_days", "aliases", "description"].includes(key)));
   return {
     birthdays: clone(birthdays),
-    custom_holidays: simple ? records.flatMap((item) => [
-      `${String(item.month).padStart(2, "0")}${String(item.day).padStart(2, "0")}`, item.name,
-    ]) : records,
+    custom_holidays: records,
   };
 }
 async function load() {
@@ -116,11 +112,11 @@ async function load() {
   if (raw.every((x) => typeof x === "string") && raw.length % 2) throw new Error("自定义节日日期与名称未配对，请先在基础配置中修正。");
   holidays = raw.every((x) => typeof x === "string") ? Array.from({length: raw.length / 2}, (_, index) => ({
     name: raw[index * 2 + 1], month: Number(raw[index * 2].slice(0, 2)), day: Number(raw[index * 2].slice(2)),
-    length_days: 1, description: "", aliasesText: "",
-  })) : raw.map((item) => ({length_days: 1, description: "", ...clone(item), aliasesText: (item.aliases || []).join(", ")}));
+    target_session: "", length_days: 1, description: "", aliasesText: "",
+  })) : raw.map((item) => ({target_session: "", length_days: 1, description: "", ...clone(item), aliasesText: (item.aliases || []).join(", ")}));
   birthdays = clone(loaded.birthdays);
   state = loaded; dirty = false;
-  $("summary").textContent = `${state.timezone} · 每日 ${state.trigger_time} · 人格 ${state.persona} · 普通节日目标群 ${state.targets.length} 个`;
+  $("summary").textContent = `${state.timezone} · 每日 ${state.trigger_time} · 人格 ${state.persona} · 当前名单模式目标群 ${state.targets.length} 个`;
   $("start").value = state.today;
   renderEntries("birthdays", birthdays); renderEntries("holidays", holidays);
   $("preview-result").replaceChildren();
@@ -151,7 +147,7 @@ $("add-birthday").onclick = () => {
   changed(); renderEntries("birthdays", birthdays);
 };
 $("add-holiday").onclick = () => {
-  holidays.push({name: "", month: 1, day: 1, length_days: 1, aliasesText: "", description: ""});
+  holidays.push({__template_key: "holiday", name: "", target_session: "", month: 1, day: 1, length_days: 1, aliasesText: "", description: ""});
   changed(); renderEntries("holidays", holidays);
 };
 $("history-refresh").onclick = () => run(history);
@@ -159,7 +155,7 @@ $("preview").onclick = () => run(async () => {
   const result = await bridge.apiPost("preview", {settings: draft(), start: $("start").value, days: Number($("days").value)});
   table($("preview-result"), ["公历日期", "节日／生日", "目标群", "输入预览"], result.items.map((row) => {
     const details = node("details"); details.append(node("summary", "查看提示词"), node("pre", row.prompt));
-    return [row.date, `${row.name} · ${row.type}`, row.targets.join("\n") || "无可发送目标（未登记或被群名单过滤）", details];
+    return [row.date, `${row.name} · ${row.type}`, row.targets.join("\n") || "无可发送目标（名单为空、被过滤或尚未发现群）", details];
   }));
   message(`已预览 ${result.items.length} 条安排${result.truncated ? "，结果超过上限，仅展示前 2000 条" : ""}。${dirty ? "当前草稿尚未保存。" : ""}`);
 });

@@ -34,8 +34,11 @@ class HolidayDefinition:
     @property
     def slug(self) -> str:
         if self.greeting_type == "生日":
-            identity = f"{self.target_session}|{self.recipient}|{self.calendar}|{self.month}|{self.day}|{self.leap_month}"
+            identity = f"{self.target_session}|{self.member_id}|{self.calendar}|{self.month}|{self.day}|{self.leap_month}"
             return "birthday-" + sha256(identity.encode("utf-8")).hexdigest()[:24]
+        if self.target_session:
+            identity = f"{self.target_session}|{self.name}|{self.month}|{self.day}"
+            return "target-holiday-" + sha256(identity.encode("utf-8")).hexdigest()[:24]
         base = re.sub(r"[^a-z0-9]+", "-", self.name.lower())
         return (
             base.strip("-")
@@ -84,12 +87,13 @@ class HolidayDefinition:
             ):
                 return HolidayOccurrence(self, target, target)
             return None
-        start = self.start_date_for_year(target.year)
-        if not start:
-            return None
-        delta = (target - start).days
-        if 0 <= delta < self.duration_days:
-            return HolidayOccurrence(self, target, start)
+        for year in (target.year, target.year - 1):
+            start = self.start_date_for_year(year)
+            if not start:
+                continue
+            delta = (target - start).days
+            if 0 <= delta < self.duration_days:
+                return HolidayOccurrence(self, target, start)
         return None
 
 
@@ -276,23 +280,27 @@ class HolidayCalendar:
             try:
                 if not isinstance(raw, dict):
                     raise TypeError("Birthday entry must be an object")
-                recipient = str(raw.get("recipient", "")).strip()
+                recipient_value = raw.get("recipient", "")
+                member_id_value = raw.get("member_id", "")
+                if not isinstance(recipient_value, str):
+                    raise TypeError("Birthday label must be text")
+                if not isinstance(member_id_value, str):
+                    raise TypeError("Birthday member ID must be text")
+                recipient = recipient_value.strip()
                 mention_member = bool(raw.get("mention_member", False))
-                member_id = str(raw.get("member_id", "")).strip()
+                member_id = member_id_value.strip()
                 session = str(raw.get("target_session", "")).strip()
                 parts = session.split(":", 2)
                 if (
-                    not recipient
+                    not member_id
                     or len(parts) != 3
                     or parts[1] != "GroupMessage"
                     or not parts[0]
                     or not parts[2]
                 ):
                     raise ValueError(
-                        "Recipient and a full group session ID are required"
+                        "Member ID and a full group session ID are required"
                     )
-                if mention_member and not member_id:
-                    raise ValueError("Member ID is required when mentioning is enabled")
                 calendar = raw.get("calendar", "solar")
                 month, day = int(raw.get("month", 0)), int(raw.get("day", 0))
                 if calendar == "solar":
@@ -304,7 +312,7 @@ class HolidayCalendar:
                     raise ValueError("Calendar must be solar or lunar")
                 definitions.append(
                     HolidayDefinition(
-                        name=f"{recipient}的生日",
+                        name=f"{recipient or member_id}的生日",
                         month=month,
                         day=day,
                         description=str(raw.get("extra_info", "")).strip(),
@@ -341,6 +349,7 @@ class HolidayCalendar:
                                 if str(alias).strip()
                             ),
                             description=str(raw.get("description", "")),
+                            target_session=str(raw.get("target_session", "")).strip(),
                         )
                     )
                 except (TypeError, ValueError, KeyError) as exc:

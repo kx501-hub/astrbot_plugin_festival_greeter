@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import random
 from copy import deepcopy
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -21,7 +21,7 @@ from .page_api import FestivalPageAPI
 DEFAULT_TIMEZONE = "Asia/Shanghai"
 DEFAULT_TRIGGER = time(hour=8, minute=0)
 DEFAULT_PLATFORM = "aiocqhttp"
-DEFAULT_MESSAGE_TYPE = "group"
+DEFAULT_MESSAGE_TYPE = "GroupMessage"
 DATA_SUBDIR = "festival_greeter"
 PRUNE_INTERVAL = timedelta(days=7)
 RETENTION_WINDOW = timedelta(days=400)
@@ -57,10 +57,20 @@ class FestivalGreetingPlugin(Star):
 
         self._delivery_targets: List[str] = []
 
-        mode = str(self._config.get("group_filter_mode", "disabled")).lower()
-        if mode not in {"disabled", "whitelist", "blacklist"}:
-            logger.warning("无效的群名单模式 %s，采用 disabled", mode)
-            mode = "disabled"
+        configured_mode = self._config.get("group_filter_mode", "whitelist")
+        mode = str(configured_mode).lower()
+        if mode not in {"whitelist", "blacklist"}:
+            logger.warning("无效或旧版群名单模式 %s，采用 whitelist", mode)
+            mode = "whitelist"
+            self._config["group_filter_mode"] = mode
+            if self._config_source is not None:
+                self._config_source["group_filter_mode"] = mode
+                save_config = getattr(self._config_source, "save_config", None)
+                if callable(save_config):
+                    try:
+                        save_config()
+                    except (OSError, TypeError, ValueError) as exc:
+                        logger.warning("保存群名单模式迁移结果失败: %s", exc)
         self._group_filter_mode = mode
         self._group_filter_entries = [
             str(item).strip()
@@ -88,6 +98,52 @@ class FestivalGreetingPlugin(Star):
         )
 
         custom_defs = self._config.get("custom_holidays")
+        if (
+            isinstance(custom_defs, list)
+            and custom_defs
+            and all(isinstance(item, str) for item in custom_defs)
+            and len(custom_defs) % 2 == 0
+        ):
+            migrated = []
+            for date_token, name in zip(custom_defs[::2], custom_defs[1::2]):
+                if (
+                    len(date_token) != 4
+                    or not date_token.isascii()
+                    or not date_token.isdigit()
+                    or not name.strip()
+                ):
+                    migrated = []
+                    break
+                month, day = int(date_token[:2]), int(date_token[2:])
+                try:
+                    date(2000, month, day)
+                except ValueError:
+                    migrated = []
+                    break
+                migrated.append(
+                    {
+                        "__template_key": "holiday",
+                        "name": name,
+                        "target_session": "",
+                        "month": month,
+                        "day": day,
+                        "length_days": 1,
+                        "aliases": [],
+                        "description": "",
+                    }
+                )
+            if migrated:
+                custom_defs = migrated
+                self._config["custom_holidays"] = migrated
+                if self._config_source is not None:
+                    self._config_source["custom_holidays"] = migrated
+                    save_config = getattr(self._config_source, "save_config", None)
+                    if callable(save_config):
+                        try:
+                            save_config()
+                            logger.info("已将旧版自定义节日配置迁移为逐条配置")
+                        except (OSError, TypeError, ValueError) as exc:
+                            logger.warning("保存自定义节日迁移结果失败: %s", exc)
         self._calendar = HolidayCalendar.from_config(
             custom_defs, self._config.get("birthdays")
         )
@@ -102,7 +158,10 @@ class FestivalGreetingPlugin(Star):
             return
         if not hasattr(self._state_store, "list_groups"):
             return
-        recorded_groups = self._state_store.list_groups()
+        recorded_groups = [
+            *self._state_store.list_known_groups(),
+            *self._state_store.list_groups(),
+        ]
         for group_id in recorded_groups:
             session = self._normalize_session(group_id)
             if session and session not in self._delivery_targets:
@@ -123,9 +182,11 @@ class FestivalGreetingPlugin(Star):
     async def initialize(self):
         self._stop_event = asyncio.Event()
         await self._state_store.prune_before(self._now() - RETENTION_WINDOW)
+        if self._group_filter_mode == "blacklist":
+            await self._refresh_known_groups()
         self._scheduler_task = asyncio.create_task(self._scheduler_loop())
         self._prune_task = asyncio.create_task(self._prune_loop())
-        active_targets = self._apply_group_filter(self._delivery_targets)
+        active_targets = self._get_unbound_targets()
         logger.info("节日祝福调度器已启动，目标群数量：%s", len(active_targets))
 
     async def terminate(self):
@@ -184,6 +245,8 @@ class FestivalGreetingPlugin(Star):
         return candidate
 
     async def _handle_tick(self, scheduled_time: datetime) -> None:
+        if self._group_filter_mode == "blacklist":
+            await self._refresh_known_groups()
         holidays = self._calendar.get_holidays_for(scheduled_time.date())
         if not holidays:
             logger.debug("%s 无节日，跳过推送", scheduled_time.date())
@@ -197,7 +260,7 @@ class FestivalGreetingPlugin(Star):
                 )
                 return
 
-        sessions = self._apply_group_filter(self._delivery_targets)
+        sessions = self._get_unbound_targets()
         for holiday in holidays:
             targets = (
                 self._apply_group_filter([holiday.definition.target_session])
@@ -240,7 +303,7 @@ class FestivalGreetingPlugin(Star):
             and holiday.definition.member_id
         ):
             chain.at(
-                holiday.definition.recipient,
+                holiday.definition.recipient or holiday.definition.member_id,
                 holiday.definition.member_id,
             ).message(" ")
         chain.message(message)
@@ -336,7 +399,12 @@ class FestivalGreetingPlugin(Star):
                 year=holiday.current_date.year,
             )
         if holiday.definition.greeting_type == "生日":
-            return f"{holiday.definition.recipient}，生日快乐！愿你新的一岁平安顺遂，心愿成真。"
+            prefix = (
+                f"{holiday.definition.recipient}，"
+                if holiday.definition.recipient
+                else ""
+            )
+            return f"{prefix}生日快乐！愿你新的一岁平安顺遂，心愿成真。"
         return (
             f"{holiday.definition.name}快乐！愿每位小伙伴都能与家人朋友共享温暖时光，"
             "心愿成真，未来可期。"
@@ -351,8 +419,6 @@ class FestivalGreetingPlugin(Star):
         return f"{DEFAULT_PLATFORM}:{DEFAULT_MESSAGE_TYPE}:{text}"
 
     def _apply_group_filter(self, sessions: Sequence[str]) -> List[str]:
-        if self._group_filter_mode == "disabled":
-            return list(sessions)
         filter_set = {
             self._normalize_filter_entry(item) for item in self._group_filter_entries
         }
@@ -371,6 +437,43 @@ class FestivalGreetingPlugin(Star):
                 result.append(session)
         return result
 
+    def _get_unbound_targets(self) -> List[str]:
+        """Resolve targets for built-in and unbound custom holidays."""
+        if self._group_filter_mode == "whitelist":
+            candidates = [
+                session
+                for item in self._group_filter_entries
+                if (session := self._normalize_session(item))
+            ]
+        else:
+            candidates = self._delivery_targets
+        return list(dict.fromkeys(self._apply_group_filter(candidates)))
+
+    async def _refresh_known_groups(self) -> None:
+        """Discover OneBot groups and retain groups observed on other platforms."""
+        platforms = getattr(self.context.platform_manager, "platform_insts", [])
+        discovered = []
+        for platform in platforms:
+            metadata = platform.meta()
+            if metadata.name != "aiocqhttp":
+                continue
+            try:
+                groups = await platform.get_client().call_action("get_group_list")
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("获取 OneBot 群列表失败，使用已发现群列表: %s", exc)
+                continue
+            if not isinstance(groups, list):
+                continue
+            for group in groups:
+                group_id = group.get("group_id") if isinstance(group, dict) else None
+                if group_id is None:
+                    continue
+                session = f"{metadata.id}:GroupMessage:{group_id}"
+                if session not in self._delivery_targets:
+                    self._delivery_targets.append(session)
+                discovered.append(session)
+        await self._state_store.add_known_groups(discovered)
+
     def _normalize_filter_entry(self, item: str) -> str:
         text = str(item).strip()
         if not text:
@@ -382,6 +485,14 @@ class FestivalGreetingPlugin(Star):
     def _extract_group_id(self, session: str) -> str:
         parts = session.split(":")
         return parts[-1] if parts else session
+
+    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
+    async def remember_group(self, event: AstrMessageEvent) -> None:
+        """Remember active groups so blacklist mode works on every platform."""
+        session = self._normalize_session(event.unified_msg_origin)
+        if session and session not in self._delivery_targets:
+            self._delivery_targets.append(session)
+            await self._state_store.add_known_group(session)
 
     def _resolve_state_path(self) -> Path:
         getters = []
@@ -429,9 +540,6 @@ class FestivalGreetingPlugin(Star):
         if not sessions:
             yield event.plain_result("当前会话不在允许列表内，无法发送节日祝福。")
             return
-        normalized_session = self._normalize_session(session)
-        if normalized_session and normalized_session not in self._delivery_targets:
-            self._delivery_targets.append(normalized_session)
         for holiday in holidays:
             gid = self._extract_group_id(session)
             now = self._now()
@@ -453,7 +561,7 @@ class FestivalGreetingPlugin(Star):
                 and holiday.definition.member_id
             ):
                 chain.at(
-                    holiday.definition.recipient,
+                    holiday.definition.recipient or holiday.definition.member_id,
                     holiday.definition.member_id,
                 ).message(" ")
             chain.message(message)
@@ -484,11 +592,7 @@ class FestivalGreetingPlugin(Star):
             yield event.plain_result("今天没有适用于当前群的节日或生日，无需调试发送。")
             return
 
-        normalized_session = self._normalize_session(session)
-        if normalized_session and normalized_session not in self._delivery_targets:
-            self._delivery_targets.append(normalized_session)
-
-        target_session = normalized_session or session
+        target_session = self._normalize_session(session) or session
 
         successes = 0
         failures: List[str] = []
