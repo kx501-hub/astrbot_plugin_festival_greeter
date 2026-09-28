@@ -84,15 +84,29 @@ def validate_document(body):
             raise ValueError("成员 ID 必须是文本")
         if not member_id.strip():
             raise ValueError("请填写成员 ID")
-        session = item.get("target_session")
-        parts = session.strip().split(":", 2) if isinstance(session, str) else []
-        if (
-            len(parts) != 3
-            or not parts[0]
-            or parts[1] != "GroupMessage"
-            or not parts[2]
-        ):
-            raise ValueError("目标群需填写完整会话 ID，例如 qq_bot:GroupMessage:123456")
+        delivery_type = item.get("delivery_type", "group")
+        if delivery_type not in {"group", "private"}:
+            raise ValueError("发送方式必须为 group 或 private")
+        if delivery_type == "private":
+            platform_id = item.get("platform_id", "")
+            if (
+                not isinstance(platform_id, str)
+                or not platform_id.strip()
+                or ":" in platform_id
+            ):
+                raise ValueError("私聊祝福需填写平台实例 ID，例如 qq_bot")
+        else:
+            session = item.get("target_session")
+            parts = session.strip().split(":", 2) if isinstance(session, str) else []
+            if (
+                len(parts) != 3
+                or not parts[0]
+                or parts[1] != "GroupMessage"
+                or not parts[2]
+            ):
+                raise ValueError(
+                    "群聊祝福需填写完整目标群会话 ID，例如 qq_bot:GroupMessage:123456"
+                )
         calendar = item.get("calendar", "solar")
         _validate_date(item, calendar)
         if not isinstance(item.get("leap_month", False), bool):
@@ -209,11 +223,14 @@ class FestivalPageAPI:
                     ):
                         continue
                     definition = occurrence.definition
-                    targets = self.plugin._apply_group_filter(
-                        [definition.target_session]
-                        if definition.target_session
-                        else self.plugin._get_unbound_targets()
-                    )
+                    if definition.delivery_type == "private":
+                        targets = [definition.target_session]
+                    else:
+                        targets = self.plugin._apply_group_filter(
+                            [definition.target_session]
+                            if definition.target_session
+                            else self.plugin._get_unbound_targets()
+                        )
                     rows.append(
                         {
                             **occurrence.to_payload(),

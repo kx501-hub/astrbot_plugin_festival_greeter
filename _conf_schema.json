@@ -37,7 +37,7 @@
   "persona_id": {
     "type": "string",
     "description": "祝福人格",
-    "hint": "从 AstrBot 已配置的人格中选择。所有群的节日和生日祝福均使用此人格，传入祝福类型、对象和附加信息。",
+    "hint": "从 AstrBot 已配置的人格中选择。所有节日和生日祝福均使用此人格，传入祝福类型、对象和附加信息。",
     "default": "default",
     "_special": "select_persona"
   },
@@ -102,12 +102,34 @@
   "birthdays": {
     "type": "template_list",
     "description": "生日祝福",
-    "hint": "添加生日条目，成员 ID 必填；称呼／备注可选。每条可分别设置目标群、公历或农历日期和附加信息。也可在插件 Pages → 祝福管理中编辑。",
+    "hint": "添加生日条目，成员 ID 必填；称呼／备注可选。每条可选择群聊或私聊，并分别设置公历或农历日期和附加信息。也可在插件 Pages → 祝福管理中编辑。",
     "default": [],
     "templates": {
       "birthday": {
         "name": "生日祝福",
         "items": {
+          "delivery_type": {
+            "type": "string",
+            "description": "发送方式",
+            "options": [
+              "group",
+              "private"
+            ],
+            "default": "group",
+            "hint": "group 发送到指定群，private 私聊成员。私聊时忽略 @ 寿星开关。"
+          },
+          "target_session": {
+            "type": "string",
+            "description": "目标群会话 ID",
+            "hint": "群聊时必填。填写完整统一会话 ID，例如 bot_instance:GroupMessage:123456；bot_instance 必须是实际平台实例 ID。",
+            "default": ""
+          },
+          "platform_id": {
+            "type": "string",
+            "description": "平台实例 ID",
+            "hint": "私聊时必填，只填写统一会话 ID 第一段，例如 bot_instance。插件会使用成员 ID 组成私聊目标。",
+            "default": ""
+          },
           "member_id": {
             "type": "string",
             "description": "成员 ID",
@@ -123,14 +145,8 @@
           "mention_member": {
             "type": "bool",
             "description": "@ 寿星",
-            "hint": "开启后，在生日祝福正文前 @ 成员 ID 对应的成员。生日祝福不会 @ 全体成员。",
+            "hint": "仅群聊生效。开启后，在生日祝福正文前 @ 成员 ID 对应的成员。生日祝福不会 @ 全体成员。",
             "default": false
-          },
-          "target_session": {
-            "type": "string",
-            "description": "目标群会话 ID",
-            "hint": "填写完整统一会话 ID，例如 qq_bot:GroupMessage:123456；qq_bot 必须是实际平台实例 ID。",
-            "default": ""
           },
           "calendar": {
             "type": "string",
@@ -167,7 +183,7 @@
             "hint": "可选，填写对方特点、兴趣、关系远近等，将随生日信息一起传给人格。"
           }
         },
-        "hint": "为一位寿星配置生日及接收祝福的群。"
+        "hint": "为一位寿星配置生日及群聊或私聊接收方式。"
       }
     }
   },
@@ -189,7 +205,7 @@
     "type": "bool",
     "description": "允许手动发送",
     "default": true,
-    "hint": "允许通过 /festival-send 发送当前群当天的节日和生日祝福。此开关不影响管理员使用 /festival-debug 调试。"
+    "hint": "允许通过 /festival-send 发送当前会话当天的节日和生日祝福。此开关不影响管理员使用 /festival-debug 调试。"
   },
   "holiday_repeat_mode": {
     "type": "string",

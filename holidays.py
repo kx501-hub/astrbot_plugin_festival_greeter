@@ -28,6 +28,7 @@ class HolidayDefinition:
     mention_member: bool = False
     member_id: str = ""
     target_session: str = ""
+    delivery_type: str = "group"
     calendar: str = "solar"
     leap_month: bool = False
 
@@ -287,20 +288,29 @@ class HolidayCalendar:
                 if not isinstance(member_id_value, str):
                     raise TypeError("Birthday member ID must be text")
                 recipient = recipient_value.strip()
-                mention_member = bool(raw.get("mention_member", False))
                 member_id = member_id_value.strip()
-                session = str(raw.get("target_session", "")).strip()
-                parts = session.split(":", 2)
-                if (
-                    not member_id
-                    or len(parts) != 3
-                    or parts[1] != "GroupMessage"
-                    or not parts[0]
-                    or not parts[2]
-                ):
-                    raise ValueError(
-                        "Member ID and a full group session ID are required"
-                    )
+                delivery_type = str(raw.get("delivery_type", "group")).strip()
+                if not member_id or delivery_type not in {"group", "private"}:
+                    raise ValueError("Member ID and a valid delivery type are required")
+                if delivery_type == "private":
+                    platform_id = str(raw.get("platform_id", "")).strip()
+                    if not platform_id or ":" in platform_id:
+                        raise ValueError(
+                            "A platform instance ID is required for private delivery"
+                        )
+                    session = f"{platform_id}:FriendMessage:{member_id}"
+                    mention_member = False
+                else:
+                    session = str(raw.get("target_session", "")).strip()
+                    parts = session.split(":", 2)
+                    if (
+                        len(parts) != 3
+                        or parts[1] != "GroupMessage"
+                        or not parts[0]
+                        or not parts[2]
+                    ):
+                        raise ValueError("A full group session ID is required")
+                    mention_member = bool(raw.get("mention_member", False))
                 calendar = raw.get("calendar", "solar")
                 month, day = int(raw.get("month", 0)), int(raw.get("day", 0))
                 if calendar == "solar":
@@ -321,6 +331,7 @@ class HolidayCalendar:
                         mention_member=mention_member,
                         member_id=member_id,
                         target_session=session,
+                        delivery_type=delivery_type,
                         calendar=calendar,
                         leap_month=bool(raw.get("leap_month", False))
                         if calendar == "lunar"

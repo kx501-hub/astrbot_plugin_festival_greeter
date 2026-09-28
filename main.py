@@ -262,11 +262,12 @@ class FestivalGreetingPlugin(Star):
 
         sessions = self._get_unbound_targets()
         for holiday in holidays:
-            targets = (
-                self._apply_group_filter([holiday.definition.target_session])
-                if holiday.definition.target_session
-                else sessions
-            )
+            if holiday.definition.delivery_type == "private":
+                targets = [holiday.definition.target_session]
+            elif holiday.definition.target_session:
+                targets = self._apply_group_filter([holiday.definition.target_session])
+            else:
+                targets = sessions
             await self._deliver_holiday(holiday, targets)
 
     async def _deliver_holiday(
@@ -298,6 +299,7 @@ class FestivalGreetingPlugin(Star):
         if (
             holiday
             and holiday.definition.greeting_type == "生日"
+            and holiday.definition.delivery_type == "group"
             and holiday.definition.recipient != "全群"
             and holiday.definition.mention_member
             and holiday.definition.member_id
@@ -330,7 +332,11 @@ class FestivalGreetingPlugin(Star):
         """
         provider = await self._resolve_provider(session)
         group_id = self._extract_group_id(session)
-        prompt_context = f"目标群 ID: {group_id}"
+        prompt_context = (
+            f"目标群 ID: {group_id}"
+            if holiday.definition.delivery_type == "group"
+            else None
+        )
         prompt = build_prompt(holiday, prompt_context)
         last_error: Optional[Exception] = None
 
@@ -531,12 +537,21 @@ class FestivalGreetingPlugin(Star):
             yield event.plain_result("插件未启用手动触发功能，请联系管理员修改配置。")
             return
         today = self._now().date()
-        holidays = self._calendar.get_holidays_for(today, event.unified_msg_origin)
-        if not holidays:
-            yield event.plain_result("今天没有适用于当前群的节日或生日，稍后再试吧。")
-            return
         session = event.unified_msg_origin
-        sessions = self._apply_group_filter([session])
+        is_private_session = ":FriendMessage:" in session
+        holidays = self._calendar.get_holidays_for(today, session)
+        if is_private_session:
+            holidays = [
+                holiday
+                for holiday in holidays
+                if holiday.definition.delivery_type == "private"
+            ]
+        if not holidays:
+            yield event.plain_result("今天没有适用于当前会话的节日或生日，稍后再试吧。")
+            return
+        sessions = (
+            [session] if is_private_session else self._apply_group_filter([session])
+        )
         if not sessions:
             yield event.plain_result("当前会话不在允许列表内，无法发送节日祝福。")
             return
@@ -556,6 +571,7 @@ class FestivalGreetingPlugin(Star):
             chain = MessageChain()
             if (
                 holiday.definition.greeting_type == "生日"
+                and holiday.definition.delivery_type == "group"
                 and holiday.definition.recipient != "全群"
                 and holiday.definition.mention_member
                 and holiday.definition.member_id
@@ -588,8 +604,16 @@ class FestivalGreetingPlugin(Star):
 
         today = self._now().date()
         holidays = self._calendar.get_holidays_for(today, session)
+        if ":FriendMessage:" in session:
+            holidays = [
+                holiday
+                for holiday in holidays
+                if holiday.definition.delivery_type == "private"
+            ]
         if not holidays:
-            yield event.plain_result("今天没有适用于当前群的节日或生日，无需调试发送。")
+            yield event.plain_result(
+                "今天没有适用于当前会话的节日或生日，无需调试发送。"
+            )
             return
 
         target_session = self._normalize_session(session) or session

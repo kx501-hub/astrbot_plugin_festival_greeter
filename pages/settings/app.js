@@ -64,10 +64,18 @@ function renderEntries(kind, records) {
     header.append(remove); card.append(header);
     const grid = node("div", undefined, "grid");
     if (kind === "birthdays") {
+      const delivery = field(grid, "发送方式", record, "delivery_type", {choices: [["group", "群聊"], ["private", "私聊"]]});
+      if ((record.delivery_type || "group") === "private") {
+        field(grid, "平台实例 ID", record, "platform_id");
+      } else {
+        field(grid, "完整目标群会话 ID", record, "target_session");
+      }
       field(grid, "成员 ID", record, "member_id");
       field(grid, "称呼／备注（可选）", record, "recipient");
-      field(grid, "@ 寿星", record, "mention_member", {type: "checkbox"});
-      field(grid, "完整目标群会话 ID", record, "target_session");
+      if ((record.delivery_type || "group") === "group") {
+        field(grid, "@ 寿星", record, "mention_member", {type: "checkbox"});
+      }
+      delivery.addEventListener("change", () => renderEntries(kind, records));
       const calendar = field(grid, "历法", record, "calendar", {choices: [["solar", "公历"], ["lunar", "农历"]]});
       field(grid, "月份", record, "month", {type: "number", min: 1, max: 12});
       const day = field(grid, "日期", record, "day", {type: "number", min: 1, max: record.calendar === "lunar" ? 30 : 31});
@@ -114,7 +122,7 @@ async function load() {
     name: raw[index * 2 + 1], month: Number(raw[index * 2].slice(0, 2)), day: Number(raw[index * 2].slice(2)),
     target_session: "", length_days: 1, description: "", aliasesText: "",
   })) : raw.map((item) => ({target_session: "", length_days: 1, description: "", ...clone(item), aliasesText: (item.aliases || []).join(", ")}));
-  birthdays = clone(loaded.birthdays);
+  birthdays = clone(loaded.birthdays).map((item) => ({delivery_type: "group", platform_id: "", ...item}));
   state = loaded; dirty = false;
   $("summary").textContent = `${state.timezone} · 每日 ${state.trigger_time} · 人格 ${state.persona} · 当前名单模式目标群 ${state.targets.length} 个`;
   $("start").value = state.today;
@@ -143,7 +151,7 @@ $("save").onclick = () => run(async () => {
   state.revision = result.revision; dirty = false; message("已保存，后续调度使用新的生日和节日配置。");
 });
 $("add-birthday").onclick = () => {
-  birthdays.push({__template_key: "birthday", recipient: "", mention_member: false, member_id: "", target_session: "", calendar: "solar", month: 1, day: 1, leap_month: false, extra_info: ""});
+  birthdays.push({__template_key: "birthday", recipient: "", delivery_type: "group", mention_member: false, member_id: "", target_session: "", platform_id: "", calendar: "solar", month: 1, day: 1, leap_month: false, extra_info: ""});
   changed(); renderEntries("birthdays", birthdays);
 };
 $("add-holiday").onclick = () => {
@@ -153,7 +161,7 @@ $("add-holiday").onclick = () => {
 $("history-refresh").onclick = () => run(history);
 $("preview").onclick = () => run(async () => {
   const result = await bridge.apiPost("preview", {settings: draft(), start: $("start").value, days: Number($("days").value)});
-  table($("preview-result"), ["公历日期", "节日／生日", "目标群", "输入预览"], result.items.map((row) => {
+  table($("preview-result"), ["公历日期", "节日／生日", "目标会话", "输入预览"], result.items.map((row) => {
     const details = node("details"); details.append(node("summary", "查看提示词"), node("pre", row.prompt));
     return [row.date, `${row.name} · ${row.type}`, row.targets.join("\n") || "无可发送目标（名单为空、被过滤或尚未发现群）", details];
   }));
