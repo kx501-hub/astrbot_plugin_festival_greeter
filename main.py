@@ -530,15 +530,32 @@ class FestivalGreetingPlugin(Star):
     def _now(self) -> datetime:
         return datetime.now(self._timezone)
 
+    @filter.permission_type(filter.PermissionType.ADMIN)
     @filter.command("festival-send")
-    async def manual_send(self, event: AstrMessageEvent):
-        """手动触发当前节日祝福发送到所在会话。"""
+    async def manual_send(self, event: AstrMessageEvent, session_id: str = ""):
+        """Send today's greetings to the current or specified session.
+
+        Args:
+            event: Command event from a bot administrator.
+            session_id: Optional full unified session ID.
+        """
         if not self._allow_manual_trigger:
             yield event.plain_result("插件未启用手动触发功能，请联系管理员修改配置。")
             return
+        session = session_id.strip() or event.unified_msg_origin
+        parts = session.split(":", 2)
+        if (
+            len(parts) != 3
+            or not parts[0]
+            or parts[1] not in {"GroupMessage", "FriendMessage"}
+            or not parts[2]
+        ):
+            yield event.plain_result(
+                "请提供完整会话 ID，例如 bot_instance:GroupMessage:123456。"
+            )
+            return
         today = self._now().date()
-        session = event.unified_msg_origin
-        is_private_session = ":FriendMessage:" in session
+        is_private_session = parts[1] == "FriendMessage"
         holidays = self._calendar.get_holidays_for(today, session)
         if is_private_session:
             holidays = [
@@ -547,14 +564,10 @@ class FestivalGreetingPlugin(Star):
                 if holiday.definition.delivery_type == "private"
             ]
         if not holidays:
-            yield event.plain_result("今天没有适用于当前会话的节日或生日，稍后再试吧。")
+            yield event.plain_result("今天没有适用于目标会话的节日或生日，稍后再试吧。")
             return
-        sessions = (
-            [session] if is_private_session else self._apply_group_filter([session])
-        )
-        if not sessions:
-            yield event.plain_result("当前会话不在允许列表内，无法发送节日祝福。")
-            return
+        successes = 0
+        failures: List[str] = []
         for holiday in holidays:
             gid = self._extract_group_id(session)
             now = self._now()
@@ -567,35 +580,25 @@ class FestivalGreetingPlugin(Star):
                 continue
             message = await self._generate_message(holiday, session)
             if not message:
+                failures.append(holiday.definition.name)
                 continue
-            chain = MessageChain()
-            if (
-                holiday.definition.greeting_type == "生日"
-                and holiday.definition.delivery_type == "group"
-                and holiday.definition.recipient != "全群"
-                and holiday.definition.mention_member
-                and holiday.definition.member_id
-            ):
-                chain.at(
-                    holiday.definition.recipient or holiday.definition.member_id,
-                    holiday.definition.member_id,
-                ).message(" ")
-            chain.message(message)
-            yield event.chain_result(chain.chain)
-            await self._state_store.mark_sent(gid, holiday.key, now)
+            if await self._send_message(session, message, holiday):
+                successes += 1
+                await self._state_store.mark_sent(gid, holiday.key, now)
+            else:
+                failures.append(holiday.definition.name)
+        if successes:
+            detail = f"已向 {session} 发送 {successes} 条祝福。"
+            if failures:
+                detail += " 未成功的节日：" + ", ".join(failures)
+            yield event.plain_result(detail)
+        elif failures:
+            yield event.plain_result("发送失败，相关节日：" + ", ".join(failures))
 
+    @filter.permission_type(filter.PermissionType.ADMIN)
     @filter.command("festival-debug")
     async def debug_send(self, event: AstrMessageEvent):
-        """管理员调试指令：忽略冷却，立即发送当日节日祝福。"""
-        is_admin = False
-        try:
-            is_admin = bool(event.is_admin())
-        except AttributeError:
-            is_admin = getattr(event, "role", "member") == "admin"
-
-        if not is_admin:
-            yield event.plain_result("仅群管理员可以使用该调试指令。")
-            return
+        """Ignore cooldown and send today's greetings for debugging."""
 
         session = event.unified_msg_origin
         if not session:

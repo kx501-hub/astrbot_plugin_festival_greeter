@@ -205,7 +205,7 @@
     "type": "bool",
     "description": "允许手动发送",
     "default": true,
-    "hint": "允许通过 /festival-send 发送当前会话当天的节日和生日祝福。此开关不影响管理员使用 /festival-debug 调试。"
+    "hint": "允许管理员使用 /festival-send 发送当前或指定会话当天的祝福，不受群名单限制。此开关不影响 /festival-debug。"
   },
   "holiday_repeat_mode": {
     "type": "string",
