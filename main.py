@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+import shutil
 from copy import deepcopy
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
@@ -10,7 +11,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, MessageChain, filter
-from astrbot.api.star import Context, Star, register
+from astrbot.api.star import Context, Star, StarTools, register
 
 from .holidays import HolidayCalendar, HolidayOccurrence
 from .message_builder import build_prompt, extract_text_from_response
@@ -501,26 +502,17 @@ class FestivalGreetingPlugin(Star):
             await self._state_store.add_known_group(session)
 
     def _resolve_state_path(self) -> Path:
-        getters = []
-        direct_getter = getattr(self.context, "get_data_dir", None)
-        if callable(direct_getter):
-            getters.append(direct_getter)
-        tools = getattr(self.context, "tools", None)
-        tool_getter = getattr(tools, "get_data_dir", None) if tools else None
-        if callable(tool_getter):
-            getters.append(tool_getter)
-
-        for getter in getters:
+        data_dir = StarTools.get_data_dir()
+        state_path = data_dir / "deliveries.json"
+        legacy_path = Path("data") / DATA_SUBDIR / "deliveries.json"
+        if not state_path.exists() and legacy_path.is_file():
             try:
-                base = Path(getter())
-                base.mkdir(parents=True, exist_ok=True)
-                return base / "deliveries.json"
-            except (OSError, TypeError, ValueError) as exc:
-                logger.warning("获取数据目录失败，尝试下一个候选：%s", exc)
-
-        fallback_dir = Path("data") / DATA_SUBDIR
-        fallback_dir.mkdir(parents=True, exist_ok=True)
-        return fallback_dir / "deliveries.json"
+                shutil.copy2(legacy_path, state_path)
+            except OSError as exc:
+                logger.warning(
+                    "Failed to migrate legacy festival delivery records: %s", exc
+                )
+        return state_path
 
     def _cooldown_window_hours(self) -> int:
         if self._holiday_repeat_mode == "every-day":

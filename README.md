@@ -1,5 +1,7 @@
 # 节日与生日祝福
 
+> forked from [exynos967/astrbot_plugin_festival_greeter](https://github.com/exynos967/astrbot_plugin_festival_greeter)
+
 插件会在设定时间为节日或生日生成祝福，并发送到指定群聊或生日对象的私聊。祝福由你选择的 AstrBot 人格生成，也可以配置备用文案。
 
 ## 开始使用
